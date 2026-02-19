@@ -139,6 +139,26 @@ extension SettingsView {
 extension SettingsView {
     func onSettingChange(_ key: String) {
         switch key {
+            case "Library.runCrossSourceCheck":
+                guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return }
+                (UIApplication.shared.delegate as? AppDelegate)?.showLoadingIndicator()
+                Task {
+                    await CrossSourceChecker.shared.clearCache()
+                    let libraryManga = await CoreDataManager.shared.container.performBackgroundTask { context in
+                        CoreDataManager.shared.getLibraryManga(context: context).compactMap { libraryObject -> MangaInfo? in
+                            guard let mangaObject = libraryObject.manga else { return nil }
+                            return MangaInfo(
+                                mangaId: mangaObject.id,
+                                sourceId: mangaObject.sourceId,
+                                title: mangaObject.title
+                            )
+                        }
+                    }
+                    let stream = await CrossSourceChecker.shared.checkLibrary(manga: libraryManga)
+                    for await _ in stream {}
+                    NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
+                    await (UIApplication.shared.delegate as? AppDelegate)?.hideLoadingIndicator()
+                }
             case "General.appearance", "General.useSystemAppearance":
                 if !UserDefaults.standard.bool(forKey: "General.useSystemAppearance") {
                     if UserDefaults.standard.integer(forKey: "General.appearance") == 0 {

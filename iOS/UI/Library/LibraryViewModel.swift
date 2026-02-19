@@ -598,6 +598,8 @@ extension LibraryViewModel {
     func fetchCrossSourceStatus() {
         crossSourceCheckTask?.cancel()
 
+        guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return }
+
         let allManga = self.manga + self.pinnedManga
         guard !allManga.isEmpty else { return }
 

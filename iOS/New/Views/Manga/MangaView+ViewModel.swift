@@ -302,6 +302,7 @@ extension MangaView.ViewModel {
 
     /// Check other installed sources for a newer chapter of this manga.
     func checkForNewerSource() async {
+        guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return }
         let info = MangaInfo(
             mangaId: manga.key,
             sourceId: manga.sourceKey,
