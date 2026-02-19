@@ -135,7 +135,12 @@ actor CrossSourceChecker {
         let currentMax = await maxChapterNumber(sourceId: manga.sourceId, mangaId: manga.mangaId)
         guard let currentMax else { return noResult }
 
-        let sources = availableSources ?? (await installedSourcesExcludingLocal())
+        let sources: [AidokuRunner.Source]
+        if let availableSources {
+            sources = availableSources
+        } else {
+            sources = await installedSourcesExcludingLocal()
+        }
         let otherSources = sources.filter { $0.id != manga.sourceId }
         guard !otherSources.isEmpty else { return noResult }
 
