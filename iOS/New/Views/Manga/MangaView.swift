@@ -21,6 +21,7 @@ struct MangaView: View {
     @State private var showRemoveAllConfirm = false
     @State private var showRemoveSelectedConfirm = false
     @State private var showConnectionAlert = false
+    @State private var showNewerSourceAlert = false
 
     @State private var detailsLoaded = false
     @State private var descriptionExpanded = false
@@ -149,6 +150,46 @@ struct MangaView: View {
                     Text(NSLocalizedString("NO_WIFI_ALERT_MESSAGE"))
                 }
             )
+            .alert(
+                NSLocalizedString("NEWER_SOURCE_AVAILABLE"),
+                isPresented: $showNewerSourceAlert,
+                actions: {
+                    Button(NSLocalizedString("MIGRATE"), role: nil) {
+                        if let sourceName = viewModel.crossSourceResult?.newerSourceName,
+                           let sourceId = SourceManager.shared.sources.first(where: { $0.name == sourceName })?.id {
+                            let migrateView = MigrateMangaView(
+                                manga: [viewModel.manga.toOld()],
+                                destination: sourceId
+                            )
+                            path.present(UIHostingController(
+                                rootView: SwiftUINavigationView(rootView: migrateView)
+                            ))
+                        } else {
+                            let migrateView = MigrateMangaView(manga: [viewModel.manga.toOld()])
+                            path.present(UIHostingController(
+                                rootView: SwiftUINavigationView(rootView: migrateView)
+                            ))
+                        }
+                    }
+                    Button(NSLocalizedString("CANCEL"), role: .cancel) {}
+                },
+                message: {
+                    if let result = viewModel.crossSourceResult,
+                       let sourceName = result.newerSourceName {
+                        let currentCh = result.currentChapterNumber.map { String(format: "%.1f", $0) } ?? "?"
+                        let newerCh = result.newerChapterNumber.map { String(format: "%.1f", $0) } ?? "?"
+                        Text(String(
+                            format: NSLocalizedString("NEWER_SOURCE_MESSAGE"),
+                            sourceName, newerCh, currentCh
+                        ))
+                    }
+                }
+            )
+            .onReceive(viewModel.$crossSourceResult) { result in
+                if let result, result.hasNewerSource {
+                    showNewerSourceAlert = true
+                }
+            }
             .scrollBackgroundHiddenPlease()
             .navigationBarBackButtonHidden(editMode == .active)
             .fullScreenCover(isPresented: $showingCoverView) {

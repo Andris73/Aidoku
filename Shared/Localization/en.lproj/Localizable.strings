@@ -660,6 +660,8 @@
 "MIGRATE_ONE_ITEM?" = "Migrate 1 item?";
 "SOURCE_BREAKING_CHANGE" = "Source Breaking Change";
 "SOURCE_BREAKING_CHANGE_TEXT" = "This source had a breaking change and requires migration to keep your library and history.";
+"NEWER_SOURCE_AVAILABLE" = "Newer Source Available";
+"NEWER_SOURCE_MESSAGE" = "%@ has a newer chapter (Ch. %@) than your current source (Ch. %@). Would you like to migrate?";
 "UPLOAD_DATE" = "Upload Date";
 "ALL_CHAPTERS_READ" = "All Chapters Read";
 "ALL_CHAPTERS_LOCKED" = "All Chapters Locked";
