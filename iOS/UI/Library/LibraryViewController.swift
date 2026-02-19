@@ -411,7 +411,7 @@ class LibraryViewController: OldMangaCollectionViewController {
         addObserver(forName: .crossSourceCheckCompleted) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                self.reloadItems()
+                self.updateDataSource()
             }
         }
 

@@ -35,6 +35,9 @@ actor CrossSourceChecker {
     private let cacheTTL: TimeInterval = 6 * 3600 // 6 hours
     private let searchDelayNanoseconds: UInt64 = 500_000_000 // 0.5s between source searches
 
+    /// Minimum similarity score (0–1) for a title to be considered a match.
+    private let minimumSimilarity: Double = 0.75
+
     private var isRunning = false
 
     // MARK: - Public API
@@ -144,7 +147,7 @@ actor CrossSourceChecker {
         let otherSources = sources.filter { $0.id != manga.sourceId }
         guard !otherSources.isEmpty else { return noResult }
 
-        // Search each source for a title match and compare chapters
+        // Search each source for a verified title match and compare chapters
         for source in otherSources {
             guard !Task.isCancelled else { break }
 
@@ -187,8 +190,10 @@ actor CrossSourceChecker {
         return remoteMax > currentMax ? remoteMax : nil
     }
 
-    // MARK: - Source Search
+    // MARK: - Source Search (Robust Matching)
 
+    /// Searches a source for the given title and returns the best-matching manga
+    /// only if it passes a strict similarity threshold. Returns `nil` for poor matches.
     private func searchForBestMatch(
         source: AidokuRunner.Source,
         title: String
@@ -196,11 +201,114 @@ actor CrossSourceChecker {
         let result = try? await source.getSearchMangaList(query: title, page: 1, filters: [])
         guard let entries = result?.entries, !entries.isEmpty else { return nil }
 
-        // Find best title match from first page results
-        let normalizedTitle = title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let exactMatch = entries.first { $0.title.lowercased() == normalizedTitle }
-        return exactMatch ?? entries.first
+        let normalizedQuery = Self.normalize(title)
+        guard !normalizedQuery.isEmpty else { return nil }
+
+        var bestMatch: AidokuRunner.Manga?
+        var bestScore: Double = 0
+
+        for entry in entries {
+            let normalizedCandidate = Self.normalize(entry.title)
+            guard !normalizedCandidate.isEmpty else { continue }
+
+            let score = Self.titleSimilarity(normalizedQuery, normalizedCandidate)
+            if score > bestScore {
+                bestScore = score
+                bestMatch = entry
+            }
+            // Perfect match — stop early
+            if score >= 1.0 { break }
+        }
+
+        guard bestScore >= minimumSimilarity else { return nil }
+        return bestMatch
     }
+
+    // MARK: - Title Normalization & Similarity
+
+    /// Normalizes a manga title for comparison:
+    /// lowercased, stripped of non-alphanumeric characters (except spaces),
+    /// collapsed whitespace, trimmed.
+    private static func normalize(_ title: String) -> String {
+        let lowered = title.lowercased()
+        let stripped = lowered.unicodeScalars.map { scalar -> Character in
+            CharacterSet.alphanumerics.contains(scalar) || scalar == " "
+                ? Character(scalar)
+                : Character(" ")
+        }
+        return String(stripped)
+            .split(separator: " ")
+            .joined(separator: " ")
+    }
+
+    /// Computes an overall similarity score (0–1) between two **already-normalized** titles
+    /// by combining exact match, containment, word overlap (Jaccard), and
+    /// bigram similarity (Sørensen–Dice).
+    private static func titleSimilarity(_ a: String, _ b: String) -> Double {
+        // 1. Exact match
+        if a == b { return 1.0 }
+
+        // 2. Containment — one title is a substring of the other.
+        //    Only accept if the shorter string is at least 70 % of the longer.
+        let containmentScore = containmentSimilarity(a, b)
+        if containmentScore >= 0.90 { return containmentScore }
+
+        // 3. Word-level Jaccard index
+        let wordScore = wordJaccard(a, b)
+
+        // 4. Character-bigram Sørensen–Dice coefficient
+        let bigramScore = bigramDice(a, b)
+
+        // Take the higher of the two fuzzy scores
+        return max(wordScore, max(bigramScore, containmentScore))
+    }
+
+    /// Returns a containment-based score if one string contains the other, else 0.
+    private static func containmentSimilarity(_ a: String, _ b: String) -> Double {
+        let shorter = a.count <= b.count ? a : b
+        let longer = a.count > b.count ? a : b
+        guard longer.contains(shorter) else { return 0 }
+        return Double(shorter.count) / Double(longer.count)
+    }
+
+    /// Jaccard index over word sets.
+    private static func wordJaccard(_ a: String, _ b: String) -> Double {
+        let setA = Set(a.split(separator: " ").map(String.init))
+        let setB = Set(b.split(separator: " ").map(String.init))
+        let union = setA.union(setB)
+        guard !union.isEmpty else { return 0 }
+        return Double(setA.intersection(setB).count) / Double(union.count)
+    }
+
+    /// Sørensen–Dice coefficient over character bigrams.
+    private static func bigramDice(_ a: String, _ b: String) -> Double {
+        let bigramsA = bigrams(of: a)
+        let bigramsB = bigrams(of: b)
+        let totalCount = bigramsA.count + bigramsB.count
+        guard totalCount > 0 else { return 0 }
+
+        // Count shared bigrams (multiset intersection)
+        var bagB = [String: Int]()
+        for bg in bigramsB { bagB[bg, default: 0] += 1 }
+
+        var shared = 0
+        for bg in bigramsA {
+            if let remaining = bagB[bg], remaining > 0 {
+                shared += 1
+                bagB[bg] = remaining - 1
+            }
+        }
+        return (2.0 * Double(shared)) / Double(totalCount)
+    }
+
+    /// Extracts character bigrams from a string (ignoring spaces).
+    private static func bigrams(of string: String) -> [String] {
+        let chars = Array(string.filter { $0 != " " })
+        guard chars.count >= 2 else { return [] }
+        return (0..<chars.count - 1).map { String(chars[$0]) + String(chars[$0 + 1]) }
+    }
+
+    // MARK: - Remote Chapter Fetch
 
     private func fetchMaxChapter(
         source: AidokuRunner.Source,
