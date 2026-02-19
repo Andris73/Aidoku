@@ -15,6 +15,8 @@ class LibraryViewModel {
     var pinnedManga: [MangaInfo] = []
     var sourceKeys: [String] = []
 
+    private var crossSourceCheckTask: Task<Void, Never>?
+
     // temporary storage when searching
     private var searchQuery: String = ""
     private var storedManga: [MangaInfo]?
@@ -411,6 +413,8 @@ extension LibraryViewModel {
         if !searchQuery.isEmpty {
             await search(query: searchQuery)
         }
+
+        fetchCrossSourceStatus()
     }
 
     // updates unread counts and manga sort order for history change
@@ -585,6 +589,40 @@ extension LibraryViewModel {
             if let count = downloadCounts[manga.identifier] {
                 self.manga[i].downloads = count
             }
+        }
+    }
+
+    /// Kick off a background cross-source check for all library manga.
+    /// Results are delivered incrementally via an `AsyncStream` and
+    /// applied to the manga/pinnedManga arrays as they arrive.
+    func fetchCrossSourceStatus() {
+        crossSourceCheckTask?.cancel()
+
+        let allManga = self.manga + self.pinnedManga
+        guard !allManga.isEmpty else { return }
+
+        crossSourceCheckTask = Task { [weak self] in
+            let stream = await CrossSourceChecker.shared.checkLibrary(manga: allManga)
+            for await (identifier, result) in stream {
+                guard !Task.isCancelled, let self else { break }
+                self.applyCrossSourceResult(identifier: identifier, hasNewer: result.hasNewerSource)
+            }
+            guard !Task.isCancelled else { return }
+            NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
+        }
+    }
+
+    /// Check a single manga against other sources and update its flag.
+    func fetchCrossSourceStatus(for manga: MangaInfo) async {
+        let result = await CrossSourceChecker.shared.check(manga: manga)
+        applyCrossSourceResult(identifier: manga.identifier, hasNewer: result.hasNewerSource)
+    }
+
+    private func applyCrossSourceResult(identifier: MangaIdentifier, hasNewer: Bool) {
+        if let index = self.manga.firstIndex(where: { $0.identifier == identifier }) {
+            self.manga[index].hasNewerSource = hasNewer
+        } else if let index = self.pinnedManga.firstIndex(where: { $0.identifier == identifier }) {
+            self.pinnedManga[index].hasNewerSource = hasNewer
         }
     }
 
