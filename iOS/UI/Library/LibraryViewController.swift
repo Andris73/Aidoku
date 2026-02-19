@@ -412,6 +412,7 @@ class LibraryViewController: OldMangaCollectionViewController {
             guard let self else { return }
             Task { @MainActor in
                 self.updateDataSource()
+                self.reloadItems()
             }
         }
 

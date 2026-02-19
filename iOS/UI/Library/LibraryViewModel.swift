@@ -604,13 +604,17 @@ extension LibraryViewModel {
         guard !allManga.isEmpty else { return }
 
         crossSourceCheckTask = Task { [weak self] in
+            defer {
+                NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
+            }
             let stream = await CrossSourceChecker.shared.checkLibrary(manga: allManga)
             for await (identifier, result) in stream {
                 guard !Task.isCancelled, let self else { break }
                 self.applyCrossSourceResult(identifier: identifier, hasNewer: result.hasNewerSource)
+                if result.hasNewerSource {
+                    NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
+                }
             }
-            guard !Task.isCancelled else { return }
-            NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
         }
     }
 
