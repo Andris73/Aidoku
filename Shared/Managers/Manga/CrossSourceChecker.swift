@@ -38,17 +38,20 @@ actor CrossSourceChecker {
     /// Minimum similarity score (0–1) for a title to be considered a match.
     private let minimumSimilarity: Double = 0.75
 
-    private var isRunning = false
-
     // MARK: - Public API
 
     /// Check all library manga for newer sources in the background.
     /// Results are delivered incrementally via the returned async stream.
+    /// **Every** manga yields a result (not just newer-source hits) so that
+    /// consumers can track progress (completed / total).
     func checkLibrary(manga: [MangaInfo]) -> AsyncStream<(MangaIdentifier, CrossSourceResult)> {
         AsyncStream { continuation in
-            Task {
+            let producerTask = Task {
                 await self.performLibraryCheck(manga: manga, continuation: continuation)
                 continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                producerTask.cancel()
             }
         }
     }
@@ -89,10 +92,6 @@ actor CrossSourceChecker {
         manga: [MangaInfo],
         continuation: AsyncStream<(MangaIdentifier, CrossSourceResult)>.Continuation
     ) async {
-        guard !isRunning else { return }
-        isRunning = true
-        defer { isRunning = false }
-
         let otherSources = await installedSourcesExcludingLocal()
         guard !otherSources.isEmpty else { return }
 
@@ -101,18 +100,15 @@ actor CrossSourceChecker {
 
             let key = cacheKey(for: item)
             if let cached = cache[key], !isCacheExpired(cached) {
-                if cached.result.hasNewerSource {
-                    continuation.yield((item.identifier, cached.result))
-                }
+                continuation.yield((item.identifier, cached.result))
                 continue
             }
 
             let result = await performCheck(manga: item, availableSources: otherSources)
             cache[key] = CacheEntry(result: result, timestamp: Date())
 
-            if result.hasNewerSource {
-                continuation.yield((item.identifier, result))
-            }
+            guard !Task.isCancelled else { break }
+            continuation.yield((item.identifier, result))
 
             // Throttle to avoid hammering sources
             try? await Task.sleep(nanoseconds: searchDelayNanoseconds)

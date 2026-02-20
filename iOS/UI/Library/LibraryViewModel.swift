@@ -603,17 +603,28 @@ extension LibraryViewModel {
         let allManga = self.manga + self.pinnedManga
         guard !allManga.isEmpty else { return }
 
+        let total = allManga.count
+
         crossSourceCheckTask = Task { [weak self] in
+            let tabController = UIApplication.shared.firstKeyWindow?.rootViewController as? TabBarController
+            tabController?.showCrossSourceCheckView()
+
             defer {
+                tabController?.hideAccessoryView()
                 NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
             }
+
+            var completed = 0
             let stream = await CrossSourceChecker.shared.checkLibrary(manga: allManga)
             for await (identifier, result) in stream {
                 guard !Task.isCancelled, let self else { break }
-                self.applyCrossSourceResult(identifier: identifier, hasNewer: result.hasNewerSource)
-                if result.hasNewerSource {
-                    NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
-                }
+
+                completed += 1
+                tabController?.setCrossSourceCheckProgress(Float(completed) / Float(total))
+
+                guard result.hasNewerSource else { continue }
+                self.applyCrossSourceResult(identifier: identifier, hasNewer: true)
+                NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
             }
         }
     }

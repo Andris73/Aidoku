@@ -141,8 +141,10 @@ extension SettingsView {
         switch key {
             case "Library.runCrossSourceCheck":
                 guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return }
-                (UIApplication.shared.delegate as? AppDelegate)?.showLoadingIndicator()
                 Task {
+                    let tabController = UIApplication.shared.firstKeyWindow?.rootViewController as? TabBarController
+                    tabController?.showCrossSourceCheckView()
+
                     await CrossSourceChecker.shared.clearCache()
                     let libraryManga = await CoreDataManager.shared.container.performBackgroundTask { context in
                         CoreDataManager.shared.getLibraryManga(context: context).compactMap { libraryObject -> MangaInfo? in
@@ -154,10 +156,15 @@ extension SettingsView {
                             )
                         }
                     }
+                    let total = libraryManga.count
+                    var completed = 0
                     let stream = await CrossSourceChecker.shared.checkLibrary(manga: libraryManga)
-                    for await _ in stream {}
+                    for await _ in stream {
+                        completed += 1
+                        tabController?.setCrossSourceCheckProgress(Float(completed) / Float(total))
+                    }
                     NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
-                    await (UIApplication.shared.delegate as? AppDelegate)?.hideLoadingIndicator()
+                    tabController?.hideAccessoryView()
                 }
             case "General.appearance", "General.useSystemAppearance":
                 if !UserDefaults.standard.bool(forKey: "General.useSystemAppearance") {

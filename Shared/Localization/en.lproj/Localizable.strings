@@ -665,6 +665,7 @@
 "CROSS_SOURCE_CHECKING" = "Cross-Source Checking";
 "CROSS_SOURCE_CHECKING_FOOTER" = "Automatically compare your library manga against other installed sources to find newer chapters. Results appear as badges in your library.";
 "RUN_CROSS_SOURCE_CHECK" = "Run Cross-Source Check Now";
+"CHECKING_SOURCES" = "Checking Sources…";
 "UPLOAD_DATE" = "Upload Date";
 "ALL_CHAPTERS_READ" = "All Chapters Read";
 "ALL_CHAPTERS_LOCKED" = "All Chapters Locked";
