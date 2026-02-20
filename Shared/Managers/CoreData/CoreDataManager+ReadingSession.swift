@@ -91,12 +91,15 @@ extension CoreDataManager {
         var pagesTotal: Int = 0
         var pagesMonth: Int = 0
         var pagesYear: Int = 0
+        var pagesPreviousMonth: Int = 0
         var seriesTotal: Int = 0
         var seriesMonth: Int = 0
         var seriesYear: Int = 0
+        var seriesPreviousMonth: Int = 0
         var hoursTotal: Int = 0
         var hoursMonth: Int = 0
         var hoursYear: Int = 0
+        var hoursPreviousMonth: Int = 0
     }
 
     // get page, series, and hour read counts (total, current month, and current year)
@@ -120,12 +123,17 @@ extension CoreDataManager {
         let currentYear = calendar.component(.year, from: now)
         let currentMonth = calendar.component(.month, from: now)
 
-        var pagesTotal = 0, pagesMonth = 0, pagesYear = 0
-        var durationTotal: Double = 0, durationMonth: Double = 0, durationYear: Double = 0
+        let prevMonthDate = calendar.date(byAdding: .month, value: -1, to: now)!
+        let prevMonthNum = calendar.component(.month, from: prevMonthDate)
+        let prevMonthYear = calendar.component(.year, from: prevMonthDate)
+
+        var pagesTotal = 0, pagesMonth = 0, pagesYear = 0, pagesPrevMonth = 0
+        var durationTotal: Double = 0, durationMonth: Double = 0, durationYear: Double = 0, durationPrevMonth: Double = 0
 
         var seriesTotalSet = Set<MangaIdentifier>()
         var seriesMonthSet = Set<MangaIdentifier>()
         var seriesYearSet = Set<MangaIdentifier>()
+        var seriesPrevMonthSet = Set<MangaIdentifier>()
 
         for dict in results {
             guard
@@ -156,18 +164,27 @@ extension CoreDataManager {
                     seriesMonthSet.insert(seriesKey)
                 }
             }
+
+            if year == prevMonthYear && month == prevMonthNum {
+                pagesPrevMonth += pagesRead
+                durationPrevMonth += duration
+                seriesPrevMonthSet.insert(seriesKey)
+            }
         }
 
         return BasicStats(
             pagesTotal: pagesTotal,
             pagesMonth: pagesMonth,
             pagesYear: pagesYear,
+            pagesPreviousMonth: pagesPrevMonth,
             seriesTotal: seriesTotalSet.count,
             seriesMonth: seriesMonthSet.count,
             seriesYear: seriesYearSet.count,
+            seriesPreviousMonth: seriesPrevMonthSet.count,
             hoursTotal: Int(durationTotal / 3600),
             hoursMonth: Int(durationMonth / 3600),
-            hoursYear: Int(durationYear / 3600)
+            hoursYear: Int(durationYear / 3600),
+            hoursPreviousMonth: Int(durationPrevMonth / 3600)
         )
     }
 
@@ -264,6 +281,281 @@ extension CoreDataManager {
         }
 
         return result
+    }
+
+    // MARK: - Chapters Read Stats
+
+    func getChaptersReadStats(
+        context: NSManagedObjectContext? = nil
+    ) -> (total: Int, month: Int, year: Int, previousMonth: Int) {
+        let context = context ?? self.context
+        let request = NSFetchRequest<NSDictionary>(entityName: "History")
+        request.resultType = .dictionaryResultType
+        request.predicate = NSPredicate(format: "completed == true")
+        request.propertiesToFetch = ["dateRead"]
+
+        guard let results = try? context.fetch(request) else { return (0, 0, 0, 0) }
+
+        let calendar = Calendar.current
+        let now = Date()
+        let currentYear = calendar.component(.year, from: now)
+        let currentMonth = calendar.component(.month, from: now)
+        let prevDate = calendar.date(byAdding: .month, value: -1, to: now)!
+        let prevMonthNum = calendar.component(.month, from: prevDate)
+        let prevMonthYear = calendar.component(.year, from: prevDate)
+
+        var total = 0, month = 0, year = 0, previousMonth = 0
+
+        for dict in results {
+            total += 1
+            guard let dateRead = dict["dateRead"] as? Date else { continue }
+            let y = calendar.component(.year, from: dateRead)
+            let m = calendar.component(.month, from: dateRead)
+
+            if y == currentYear {
+                year += 1
+                if m == currentMonth { month += 1 }
+            }
+            if y == prevMonthYear && m == prevMonthNum { previousMonth += 1 }
+        }
+
+        return (total, month, year, previousMonth)
+    }
+
+    // MARK: - Session Stats (count + average duration)
+
+    func getSessionStats(
+        context: NSManagedObjectContext? = nil
+    ) -> (count: Int, avgMinutes: Int) {
+        let context = context ?? self.context
+        let request = NSFetchRequest<NSDictionary>(entityName: "ReadingSession")
+        request.resultType = .dictionaryResultType
+        request.propertiesToFetch = ["startDate", "endDate"]
+
+        guard let results = try? context.fetch(request) else { return (0, 0) }
+
+        var totalDuration: Double = 0
+        var count = 0
+
+        for dict in results {
+            guard let start = dict["startDate"] as? Date,
+                  let end = dict["endDate"] as? Date
+            else { continue }
+            totalDuration += end.timeIntervalSince(start)
+            count += 1
+        }
+
+        let avg = count > 0 ? Int(totalDuration / Double(count) / 60) : 0
+        return (count, avg)
+    }
+
+    // MARK: - Reading Habits (time-of-day + day-of-week)
+
+    func getReadingHabits(context: NSManagedObjectContext? = nil) -> ReadingHabitsData {
+        let context = context ?? self.context
+        let request = NSFetchRequest<NSDictionary>(entityName: "ReadingSession")
+        request.resultType = .dictionaryResultType
+        request.propertiesToFetch = ["endDate"]
+
+        guard let results = try? context.fetch(request) else { return .empty }
+
+        let calendar = Calendar.current
+        var timeOfDay = [0, 0, 0, 0]
+        var dayOfWeek = [0, 0, 0, 0, 0, 0, 0]
+
+        for dict in results {
+            guard let date = dict["endDate"] as? Date else { continue }
+            let hour = calendar.component(.hour, from: date)
+            let weekday = calendar.component(.weekday, from: date)
+
+            let bucket = TimeOfDayBucket.bucket(forHour: hour)
+            timeOfDay[bucket.rawValue] += 1
+
+            let day = DayOfWeek.from(calendarWeekday: weekday)
+            dayOfWeek[day.rawValue] += 1
+        }
+
+        return ReadingHabitsData(timeOfDay: timeOfDay, dayOfWeek: dayOfWeek)
+    }
+
+    // MARK: - Top Series
+
+    func getTopSeries(limit: Int = 5, context: NSManagedObjectContext? = nil) -> [TopSeriesEntry] {
+        let context = context ?? self.context
+        let request = NSFetchRequest<NSDictionary>(entityName: "ReadingSession")
+        request.resultType = .dictionaryResultType
+        request.propertiesToFetch = [
+            "pagesRead", "startDate", "endDate",
+            "history.sourceId", "history.mangaId"
+        ]
+
+        guard let results = try? context.fetch(request) else { return [] }
+
+        struct MangaStats {
+            var pages: Int = 0
+            var sessions: Int = 0
+            var duration: Double = 0
+        }
+
+        var statsMap: [MangaIdentifier: MangaStats] = [:]
+
+        for dict in results {
+            guard let pages = dict["pagesRead"] as? Int,
+                  let start = dict["startDate"] as? Date,
+                  let end = dict["endDate"] as? Date,
+                  let sourceId = dict["history.sourceId"] as? String,
+                  let mangaId = dict["history.mangaId"] as? String
+            else { continue }
+
+            let key = MangaIdentifier(sourceKey: sourceId, mangaKey: mangaId)
+            statsMap[key, default: MangaStats()].pages += pages
+            statsMap[key, default: MangaStats()].sessions += 1
+            statsMap[key, default: MangaStats()].duration += end.timeIntervalSince(start)
+        }
+
+        let sorted = statsMap.sorted { $0.value.pages > $1.value.pages }
+
+        return sorted.prefix(limit).map { identifier, stats in
+            let manga = self.getManga(
+                sourceId: identifier.sourceKey,
+                mangaId: identifier.mangaKey,
+                context: context
+            )
+            return TopSeriesEntry(
+                sourceId: identifier.sourceKey,
+                mangaId: identifier.mangaKey,
+                title: manga?.title ?? identifier.mangaKey,
+                coverUrl: manga?.cover,
+                pagesRead: stats.pages,
+                sessionsCount: stats.sessions,
+                hoursRead: stats.duration / 3600
+            )
+        }
+    }
+
+    // MARK: - Year in Review
+
+    func getYearInReviewData(context: NSManagedObjectContext? = nil) -> YearInReviewData {
+        let context = context ?? self.context
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+
+        // --- sessions for this year ---
+        let sessionRequest = NSFetchRequest<NSDictionary>(entityName: "ReadingSession")
+        sessionRequest.resultType = .dictionaryResultType
+        sessionRequest.propertiesToFetch = [
+            "pagesRead", "startDate", "endDate",
+            "history.sourceId", "history.mangaId"
+        ]
+
+        let yearStart = calendar.date(from: DateComponents(year: currentYear, month: 1, day: 1))!
+        let yearEnd = calendar.date(from: DateComponents(year: currentYear + 1, month: 1, day: 1))!
+        sessionRequest.predicate = NSPredicate(
+            format: "endDate >= %@ AND endDate < %@",
+            yearStart as NSDate, yearEnd as NSDate
+        )
+
+        let sessions = (try? context.fetch(sessionRequest)) ?? []
+
+        var totalPages = 0
+        var totalDuration: Double = 0
+        var sessionsCount = 0
+        var mangaPages: [MangaIdentifier: Int] = [:]
+        var sourcePages: [String: Int] = [:]
+        var monthSessions: [Int: Int] = [:]
+
+        for dict in sessions {
+            guard let pages = dict["pagesRead"] as? Int,
+                  let start = dict["startDate"] as? Date,
+                  let end = dict["endDate"] as? Date,
+                  let sourceId = dict["history.sourceId"] as? String,
+                  let mangaId = dict["history.mangaId"] as? String
+            else { continue }
+
+            sessionsCount += 1
+            totalPages += pages
+            totalDuration += end.timeIntervalSince(start)
+
+            let key = MangaIdentifier(sourceKey: sourceId, mangaKey: mangaId)
+            mangaPages[key, default: 0] += pages
+            sourcePages[sourceId, default: 0] += pages
+
+            let month = calendar.component(.month, from: end)
+            monthSessions[month, default: 0] += 1
+        }
+
+        // --- completed chapters this year ---
+        let historyRequest = NSFetchRequest<NSDictionary>(entityName: "History")
+        historyRequest.resultType = .dictionaryResultType
+        historyRequest.predicate = NSPredicate(
+            format: "completed == true AND dateRead >= %@ AND dateRead < %@",
+            yearStart as NSDate, yearEnd as NSDate
+        )
+        historyRequest.propertiesToFetch = ["sourceId", "mangaId"]
+
+        let completedHistory = (try? context.fetch(historyRequest)) ?? []
+
+        var chaptersRead = 0
+        var mangaWithChapters = Set<MangaIdentifier>()
+
+        for dict in completedHistory {
+            chaptersRead += 1
+            if let sourceId = dict["sourceId"] as? String,
+               let mangaId = dict["mangaId"] as? String {
+                mangaWithChapters.insert(.init(sourceKey: sourceId, mangaKey: mangaId))
+            }
+        }
+
+        // --- top manga ---
+        let topMangaEntry = mangaPages.max(by: { $0.value < $1.value })
+        var topMangaTitle: String?
+        var topMangaCoverUrl: String?
+        var topMangaPages = 0
+        if let entry = topMangaEntry {
+            let manga = self.getManga(sourceId: entry.key.sourceKey, mangaId: entry.key.mangaKey, context: context)
+            topMangaTitle = manga?.title ?? entry.key.mangaKey
+            topMangaCoverUrl = manga?.cover
+            topMangaPages = entry.value
+        }
+
+        // --- top source ---
+        let topSourceEntry = sourcePages.max(by: { $0.value < $1.value })
+        var topSourceName: String?
+        var topSourceChapters = 0
+        if let entry = topSourceEntry {
+            topSourceName = SourceManager.shared.source(for: entry.key)?.name ?? entry.key
+            topSourceChapters = entry.value
+        }
+
+        // --- top month ---
+        let topMonthEntry = monthSessions.max(by: { $0.value < $1.value })
+        var topMonthName = ""
+        var topMonthCount = 0
+        if let entry = topMonthEntry {
+            let formatter = DateFormatter()
+            formatter.locale = Locale.current
+            let symbols = formatter.monthSymbols ?? []
+            if entry.key >= 1 && entry.key <= symbols.count {
+                topMonthName = symbols[entry.key - 1]
+            }
+            topMonthCount = entry.value
+        }
+
+        return YearInReviewData(
+            year: currentYear,
+            mangaRead: mangaWithChapters.count,
+            chaptersRead: chaptersRead,
+            sessionsCount: sessionsCount,
+            pagesRead: totalPages,
+            hoursRead: Int(totalDuration / 3600),
+            topMangaTitle: topMangaTitle,
+            topMangaCoverUrl: topMangaCoverUrl,
+            topMangaPages: topMangaPages,
+            topSourceName: topSourceName,
+            topSourceChapters: topSourceChapters,
+            topMonthName: topMonthName,
+            topMonthChapters: topMonthCount
+        )
     }
 
     // get the number of history items with at least one reading session per day for the last year
