@@ -356,6 +356,16 @@ extension SettingsView {
                 return setting
             }()
             SettingView(setting: newSetting)
+        } else if setting.key == "Library.crossSourceExcludedSources" {
+            let sources = SourceManager.shared.sources
+            let sourceIds = sources.map(\.key)
+            let sourceNames = sources.map(\.name)
+            let newSetting = {
+                var setting = setting
+                setting.value = .multiselect(.init(values: sourceIds, titles: sourceNames))
+                return setting
+            }()
+            SettingView(setting: newSetting)
         }
     }
 }

@@ -58,6 +58,17 @@ actor CrossSourceChecker {
 
     /// Check a single manga for newer chapters on other sources.
     func check(manga: MangaInfo) async -> CrossSourceResult {
+        let noResult = CrossSourceResult(
+            hasNewerSource: false,
+            newerSourceName: nil,
+            newerChapterNumber: nil,
+            currentChapterNumber: nil,
+            checkedAt: Date()
+        )
+
+        // Skip if the manga's own source is blacklisted
+        guard !excludedSourceIds().contains(manga.sourceId) else { return noResult }
+
         let key = cacheKey(for: manga)
 
         if let cached = cache[key], !isCacheExpired(cached) {
@@ -92,11 +103,26 @@ actor CrossSourceChecker {
         manga: [MangaInfo],
         continuation: AsyncStream<(MangaIdentifier, CrossSourceResult)>.Continuation
     ) async {
-        let otherSources = await installedSourcesExcludingLocal()
+        let excluded = excludedSourceIds()
+        let otherSources = await installedSourcesExcludingLocal(excluded: excluded)
         guard !otherSources.isEmpty else { return }
+
+        let noResult = CrossSourceResult(
+            hasNewerSource: false,
+            newerSourceName: nil,
+            newerChapterNumber: nil,
+            currentChapterNumber: nil,
+            checkedAt: Date()
+        )
 
         for item in manga {
             guard !Task.isCancelled else { break }
+
+            // Skip manga whose own source is blacklisted
+            if excluded.contains(item.sourceId) {
+                continuation.yield((item.identifier, noResult))
+                continue
+            }
 
             let key = cacheKey(for: item)
             if let cached = cache[key], !isCacheExpired(cached) {
@@ -345,9 +371,17 @@ actor CrossSourceChecker {
 
     // MARK: - Helpers
 
-    private func installedSourcesExcludingLocal() async -> [AidokuRunner.Source] {
+    /// Returns the set of source IDs the user has excluded from cross-source checking.
+    private nonisolated func excludedSourceIds() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: "Library.crossSourceExcludedSources") ?? [])
+    }
+
+    private func installedSourcesExcludingLocal(excluded: Set<String>? = nil) async -> [AidokuRunner.Source] {
+        let excluded = excluded ?? excludedSourceIds()
         await SourceManager.shared.loadSources()
-        return SourceManager.shared.sources.filter { $0.id != LocalSourceRunner.sourceKey }
+        return SourceManager.shared.sources.filter {
+            $0.id != LocalSourceRunner.sourceKey && !excluded.contains($0.id)
+        }
     }
 
     private func cacheKey(for manga: MangaInfo) -> String {

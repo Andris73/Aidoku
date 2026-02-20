@@ -239,6 +239,12 @@ extension Settings {
                         value: .toggle(.init())
                     ),
                     .init(
+                        key: "Library.crossSourceExcludedSources",
+                        title: NSLocalizedString("EXCLUDED_SOURCES"),
+                        requires: "Library.crossSourceCheck",
+                        value: .custom
+                    ),
+                    .init(
                         key: "Library.runCrossSourceCheck",
                         title: NSLocalizedString("RUN_CROSS_SOURCE_CHECK"),
                         requires: "Library.crossSourceCheck",
