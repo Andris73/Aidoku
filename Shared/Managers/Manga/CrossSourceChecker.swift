@@ -16,7 +16,7 @@ actor CrossSourceChecker {
 
     // MARK: - Types
 
-    struct CrossSourceResult: Sendable {
+    struct CrossSourceResult: Sendable, Codable {
         let hasNewerSource: Bool
         let newerSourceName: String?
         let newerChapterNumber: Float?
@@ -24,19 +24,25 @@ actor CrossSourceChecker {
         let checkedAt: Date
     }
 
-    private struct CacheEntry {
+    private struct CacheEntry: Codable {
         let result: CrossSourceResult
         let timestamp: Date
     }
 
     // MARK: - Properties
 
-    private var cache: [String: CacheEntry] = [:]
+    private var cache: [String: CacheEntry]
     private let cacheTTL: TimeInterval = 6 * 3600 // 6 hours
     private let searchDelayNanoseconds: UInt64 = 500_000_000 // 0.5s between source searches
 
     /// Minimum similarity score (0–1) for a title to be considered a match.
     private let minimumSimilarity: Double = 0.75
+
+    // MARK: - Init
+
+    private init() {
+        self.cache = Self.loadFromDisk()
+    }
 
     // MARK: - Public API
 
@@ -77,6 +83,7 @@ actor CrossSourceChecker {
 
         let result = await performCheck(manga: manga)
         cache[key] = CacheEntry(result: result, timestamp: Date())
+        persistCache()
         return result
     }
 
@@ -90,11 +97,13 @@ actor CrossSourceChecker {
     /// Clear the entire cache, forcing fresh checks.
     func clearCache() {
         cache.removeAll()
+        persistCache()
     }
 
     /// Evict a single manga from the cache.
     func evict(manga: MangaInfo) {
         cache.removeValue(forKey: cacheKey(for: manga))
+        persistCache()
     }
 
     // MARK: - Library Check
@@ -139,6 +148,9 @@ actor CrossSourceChecker {
             // Throttle to avoid hammering sources
             try? await Task.sleep(nanoseconds: searchDelayNanoseconds)
         }
+
+        // Persist the full batch once the library check completes (or is cancelled)
+        persistCache()
     }
 
     // MARK: - Single Manga Check
@@ -390,5 +402,31 @@ actor CrossSourceChecker {
 
     private func isCacheExpired(_ entry: CacheEntry) -> Bool {
         Date().timeIntervalSince(entry.timestamp) >= cacheTTL
+    }
+
+    // MARK: - Persistence
+
+    private static var cacheFileURL: URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        return caches.appendingPathComponent("AidokuCrossSourceCache.json")
+    }
+
+    /// Loads the persisted cache from disk, discarding any entries that have already expired.
+    private static func loadFromDisk() -> [String: CacheEntry] {
+        guard
+            let data = try? Data(contentsOf: cacheFileURL),
+            let decoded = try? JSONDecoder().decode([String: CacheEntry].self, from: data)
+        else { return [:] }
+
+        let ttl: TimeInterval = 6 * 3600
+        let now = Date()
+        return decoded.filter { now.timeIntervalSince($0.value.timestamp) < ttl }
+    }
+
+    /// Writes the current in-memory cache to disk, omitting expired entries.
+    private func persistCache() {
+        let validEntries = cache.filter { !isCacheExpired($0.value) }
+        guard let data = try? JSONEncoder().encode(validEntries) else { return }
+        try? data.write(to: Self.cacheFileURL, options: .atomic)
     }
 }
