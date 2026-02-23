@@ -50,6 +50,7 @@ extension MangaView {
         @Published var chapterTitleDisplayMode: ChapterTitleDisplayMode
 
         @Published var error: Error?
+        @Published var crossSourceResult: CrossSourceChecker.CrossSourceResult?
 
         private var fetchedDetails = false
         private var markedOpened = false
@@ -299,6 +300,20 @@ extension MangaView.ViewModel {
         await fetchData()
     }
 
+    /// Check other installed sources for a newer chapter of this manga.
+    func checkForNewerSource() async {
+        guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return }
+        let info = MangaInfo(
+            mangaId: manga.key,
+            sourceId: manga.sourceKey,
+            title: manga.title
+        )
+        let result = await CrossSourceChecker.shared.check(manga: info)
+        if result.hasNewerSource {
+            crossSourceResult = result
+        }
+    }
+
     // fetches manga data, from coredata if in library or from source if not
     func fetchData() async {
         let sourceKey = manga.sourceKey
@@ -357,6 +372,11 @@ extension MangaView.ViewModel {
         await loadDownloadStatus()
         updateReadButton()
         initialDataLoaded = true
+
+        // check for newer chapters on other sources (non-blocking)
+        Task {
+            await checkForNewerSource()
+        }
     }
 
     func fetchDownloadedChapters() async {
