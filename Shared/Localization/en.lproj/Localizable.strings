@@ -480,6 +480,7 @@
 "TOP_SERIES" = "Top Series";
 "X_SESSIONS_%d" = "%d sessions";
 "X_PAGES_%d" = "%d pages";
+"X_CHAPTERS_%d" = "%d chapters";
 
 // Insights - Year in Review
 "YEAR_IN_REVIEW_%d" = "%d Year in Review";

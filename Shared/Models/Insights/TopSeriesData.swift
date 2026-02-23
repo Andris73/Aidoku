@@ -13,7 +13,7 @@ struct TopSeriesEntry: Identifiable {
     let mangaId: String
     let title: String
     let coverUrl: String?
-    let pagesRead: Int
+    let chaptersRead: Int
     let sessionsCount: Int
     let hoursRead: Double
 

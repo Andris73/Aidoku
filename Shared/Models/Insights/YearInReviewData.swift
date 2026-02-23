@@ -12,18 +12,17 @@ struct YearInReviewData {
     let mangaRead: Int
     let chaptersRead: Int
     let sessionsCount: Int
-    let pagesRead: Int
     let hoursRead: Int
     let topMangaTitle: String?
     let topMangaCoverUrl: String?
-    let topMangaPages: Int
+    let topMangaChapters: Int
     let topSourceName: String?
     let topSourceChapters: Int
     let topMonthName: String
     let topMonthChapters: Int
 
     var isEmpty: Bool {
-        chaptersRead == 0 && sessionsCount == 0 && pagesRead == 0
+        chaptersRead == 0 && sessionsCount == 0
     }
 
     static let empty = YearInReviewData(
@@ -31,11 +30,10 @@ struct YearInReviewData {
         mangaRead: 0,
         chaptersRead: 0,
         sessionsCount: 0,
-        pagesRead: 0,
         hoursRead: 0,
         topMangaTitle: nil,
         topMangaCoverUrl: nil,
-        topMangaPages: 0,
+        topMangaChapters: 0,
         topSourceName: nil,
         topSourceChapters: 0,
         topMonthName: "",
@@ -47,11 +45,10 @@ struct YearInReviewData {
         mangaRead: 12,
         chaptersRead: 248,
         sessionsCount: 189,
-        pagesRead: 4820,
         hoursRead: 36,
         topMangaTitle: "One Piece",
         topMangaCoverUrl: nil,
-        topMangaPages: 1200,
+        topMangaChapters: 102,
         topSourceName: "MangaDex",
         topSourceChapters: 102,
         topMonthName: "November",

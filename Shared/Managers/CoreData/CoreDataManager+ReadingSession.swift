@@ -88,10 +88,6 @@ extension CoreDataManager {
     }
 
     struct BasicStats {
-        var pagesTotal: Int = 0
-        var pagesMonth: Int = 0
-        var pagesYear: Int = 0
-        var pagesPreviousMonth: Int = 0
         var seriesTotal: Int = 0
         var seriesMonth: Int = 0
         var seriesYear: Int = 0
@@ -102,14 +98,14 @@ extension CoreDataManager {
         var hoursPreviousMonth: Int = 0
     }
 
-    // get page, series, and hour read counts (total, current month, and current year)
+    // get series and hour read counts (total, current month, and current year)
     func getBasicStats(context: NSManagedObjectContext?) -> BasicStats {
         let context = context ?? self.context
 
         let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "ReadingSession")
         fetchRequest.resultType = .dictionaryResultType
         fetchRequest.propertiesToFetch = [
-            "pagesRead", "startDate", "endDate",
+            "startDate", "endDate",
             "history.sourceId",
             "history.mangaId"
         ]
@@ -127,7 +123,6 @@ extension CoreDataManager {
         let prevMonthNum = calendar.component(.month, from: prevMonthDate)
         let prevMonthYear = calendar.component(.year, from: prevMonthDate)
 
-        var pagesTotal = 0, pagesMonth = 0, pagesYear = 0, pagesPrevMonth = 0
         var durationTotal: Double = 0, durationMonth: Double = 0, durationYear: Double = 0, durationPrevMonth: Double = 0
 
         var seriesTotalSet = Set<MangaIdentifier>()
@@ -137,7 +132,6 @@ extension CoreDataManager {
 
         for dict in results {
             guard
-                let pagesRead = dict["pagesRead"] as? Int,
                 let startDate = dict["startDate"] as? Date,
                 let endDate = dict["endDate"] as? Date,
                 let sourceId = dict["history.sourceId"] as? String,
@@ -149,34 +143,26 @@ extension CoreDataManager {
             let month = calendar.component(.month, from: endDate)
             let seriesKey = MangaIdentifier(sourceKey: sourceId, mangaKey: mangaId)
 
-            pagesTotal += pagesRead
             durationTotal += duration
             seriesTotalSet.insert(seriesKey)
 
             if year == currentYear {
-                pagesYear += pagesRead
                 durationYear += duration
                 seriesYearSet.insert(seriesKey)
 
                 if month == currentMonth {
-                    pagesMonth += pagesRead
                     durationMonth += duration
                     seriesMonthSet.insert(seriesKey)
                 }
             }
 
             if year == prevMonthYear && month == prevMonthNum {
-                pagesPrevMonth += pagesRead
                 durationPrevMonth += duration
                 seriesPrevMonthSet.insert(seriesKey)
             }
         }
 
         return BasicStats(
-            pagesTotal: pagesTotal,
-            pagesMonth: pagesMonth,
-            pagesYear: pagesYear,
-            pagesPreviousMonth: pagesPrevMonth,
             seriesTotal: seriesTotalSet.count,
             seriesMonth: seriesMonthSet.count,
             seriesYear: seriesYearSet.count,
@@ -392,14 +378,14 @@ extension CoreDataManager {
         let request = NSFetchRequest<NSDictionary>(entityName: "ReadingSession")
         request.resultType = .dictionaryResultType
         request.propertiesToFetch = [
-            "pagesRead", "startDate", "endDate",
-            "history.sourceId", "history.mangaId"
+            "startDate", "endDate",
+            "history.sourceId", "history.mangaId", "history.chapterId"
         ]
 
         guard let results = try? context.fetch(request) else { return [] }
 
         struct MangaStats {
-            var pages: Int = 0
+            var chapters: Set<String> = []
             var sessions: Int = 0
             var duration: Double = 0
         }
@@ -407,20 +393,20 @@ extension CoreDataManager {
         var statsMap: [MangaIdentifier: MangaStats] = [:]
 
         for dict in results {
-            guard let pages = dict["pagesRead"] as? Int,
-                  let start = dict["startDate"] as? Date,
+            guard let start = dict["startDate"] as? Date,
                   let end = dict["endDate"] as? Date,
                   let sourceId = dict["history.sourceId"] as? String,
-                  let mangaId = dict["history.mangaId"] as? String
+                  let mangaId = dict["history.mangaId"] as? String,
+                  let chapterId = dict["history.chapterId"] as? String
             else { continue }
 
             let key = MangaIdentifier(sourceKey: sourceId, mangaKey: mangaId)
-            statsMap[key, default: MangaStats()].pages += pages
+            statsMap[key, default: MangaStats()].chapters.insert(chapterId)
             statsMap[key, default: MangaStats()].sessions += 1
             statsMap[key, default: MangaStats()].duration += end.timeIntervalSince(start)
         }
 
-        let sorted = statsMap.sorted { $0.value.pages > $1.value.pages }
+        let sorted = statsMap.sorted { $0.value.chapters.count > $1.value.chapters.count }
 
         return sorted.prefix(limit).map { identifier, stats in
             let manga = self.getManga(
@@ -433,7 +419,7 @@ extension CoreDataManager {
                 mangaId: identifier.mangaKey,
                 title: manga?.title ?? identifier.mangaKey,
                 coverUrl: manga?.cover,
-                pagesRead: stats.pages,
+                chaptersRead: stats.chapters.count,
                 sessionsCount: stats.sessions,
                 hoursRead: stats.duration / 3600
             )
@@ -451,8 +437,8 @@ extension CoreDataManager {
         let sessionRequest = NSFetchRequest<NSDictionary>(entityName: "ReadingSession")
         sessionRequest.resultType = .dictionaryResultType
         sessionRequest.propertiesToFetch = [
-            "pagesRead", "startDate", "endDate",
-            "history.sourceId", "history.mangaId"
+            "startDate", "endDate",
+            "history.sourceId", "history.mangaId", "history.chapterId"
         ]
 
         let yearStart = calendar.date(from: DateComponents(year: currentYear, month: 1, day: 1))!
@@ -464,28 +450,26 @@ extension CoreDataManager {
 
         let sessions = (try? context.fetch(sessionRequest)) ?? []
 
-        var totalPages = 0
         var totalDuration: Double = 0
         var sessionsCount = 0
-        var mangaPages: [MangaIdentifier: Int] = [:]
-        var sourcePages: [String: Int] = [:]
+        var mangaChapters: [MangaIdentifier: Set<String>] = [:]
+        var sourceChapters: [String: Set<String>] = [:]
         var monthSessions: [Int: Int] = [:]
 
         for dict in sessions {
-            guard let pages = dict["pagesRead"] as? Int,
-                  let start = dict["startDate"] as? Date,
+            guard let start = dict["startDate"] as? Date,
                   let end = dict["endDate"] as? Date,
                   let sourceId = dict["history.sourceId"] as? String,
-                  let mangaId = dict["history.mangaId"] as? String
+                  let mangaId = dict["history.mangaId"] as? String,
+                  let chapterId = dict["history.chapterId"] as? String
             else { continue }
 
             sessionsCount += 1
-            totalPages += pages
             totalDuration += end.timeIntervalSince(start)
 
             let key = MangaIdentifier(sourceKey: sourceId, mangaKey: mangaId)
-            mangaPages[key, default: 0] += pages
-            sourcePages[sourceId, default: 0] += pages
+            mangaChapters[key, default: []].insert(chapterId)
+            sourceChapters[sourceId, default: []].insert(chapterId)
 
             let month = calendar.component(.month, from: end)
             monthSessions[month, default: 0] += 1
@@ -514,24 +498,24 @@ extension CoreDataManager {
         }
 
         // --- top manga ---
-        let topMangaEntry = mangaPages.max(by: { $0.value < $1.value })
+        let topMangaEntry = mangaChapters.max(by: { $0.value.count < $1.value.count })
         var topMangaTitle: String?
         var topMangaCoverUrl: String?
-        var topMangaPages = 0
+        var topMangaChapters = 0
         if let entry = topMangaEntry {
             let manga = self.getManga(sourceId: entry.key.sourceKey, mangaId: entry.key.mangaKey, context: context)
             topMangaTitle = manga?.title ?? entry.key.mangaKey
             topMangaCoverUrl = manga?.cover
-            topMangaPages = entry.value
+            topMangaChapters = entry.value.count
         }
 
         // --- top source ---
-        let topSourceEntry = sourcePages.max(by: { $0.value < $1.value })
+        let topSourceEntry = sourceChapters.max(by: { $0.value.count < $1.value.count })
         var topSourceName: String?
         var topSourceChapters = 0
         if let entry = topSourceEntry {
             topSourceName = SourceManager.shared.source(for: entry.key)?.name ?? entry.key
-            topSourceChapters = entry.value
+            topSourceChapters = entry.value.count
         }
 
         // --- top month ---
@@ -553,11 +537,10 @@ extension CoreDataManager {
             mangaRead: mangaWithChapters.count,
             chaptersRead: chaptersRead,
             sessionsCount: sessionsCount,
-            pagesRead: totalPages,
             hoursRead: Int(totalDuration / 3600),
             topMangaTitle: topMangaTitle,
             topMangaCoverUrl: topMangaCoverUrl,
-            topMangaPages: topMangaPages,
+            topMangaChapters: topMangaChapters,
             topSourceName: topSourceName,
             topSourceChapters: topSourceChapters,
             topMonthName: topMonthName,

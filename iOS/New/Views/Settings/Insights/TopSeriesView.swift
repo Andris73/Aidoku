@@ -47,7 +47,7 @@ private struct TopSeriesRow: View {
             coverImage
             titleAndStats
             Spacer(minLength: 0)
-            pageCount
+            chapterCount
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -138,13 +138,13 @@ private struct TopSeriesRow: View {
         .foregroundStyle(.secondary)
     }
 
-    private var pageCount: some View {
+    private var chapterCount: some View {
         VStack(alignment: .trailing, spacing: 2) {
-            Text(entry.pagesRead, format: .number.notation(.compactName))
+            Text(entry.chaptersRead, format: .number.notation(.compactName))
                 .font(.system(size: 18, weight: .bold, design: .rounded))
-            Text(entry.pagesRead == 1
-                 ? NSLocalizedString("PAGE_SINGULAR")
-                 : NSLocalizedString("PAGE_PLURAL"))
+            Text(entry.chaptersRead == 1
+                 ? NSLocalizedString("CHAPTER_SINGULAR")
+                 : NSLocalizedString("CHAPTER_PLURAL"))
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
         }
@@ -170,7 +170,7 @@ private struct TopSeriesRow: View {
                 sourceId: "src1", mangaId: "m1",
                 title: "One Piece",
                 coverUrl: nil,
-                pagesRead: 1200,
+                chaptersRead: 45,
                 sessionsCount: 45,
                 hoursRead: 12.5
             ),
@@ -178,7 +178,7 @@ private struct TopSeriesRow: View {
                 sourceId: "src1", mangaId: "m2",
                 title: "Chainsaw Man",
                 coverUrl: nil,
-                pagesRead: 840,
+                chaptersRead: 32,
                 sessionsCount: 32,
                 hoursRead: 8.2
             ),
@@ -186,7 +186,7 @@ private struct TopSeriesRow: View {
                 sourceId: "src1", mangaId: "m3",
                 title: "Jujutsu Kaisen",
                 coverUrl: nil,
-                pagesRead: 620,
+                chaptersRead: 24,
                 sessionsCount: 24,
                 hoursRead: 5.7
             ),
@@ -194,7 +194,7 @@ private struct TopSeriesRow: View {
                 sourceId: "src2", mangaId: "m4",
                 title: "Dandadan",
                 coverUrl: nil,
-                pagesRead: 410,
+                chaptersRead: 18,
                 sessionsCount: 18,
                 hoursRead: 3.4
             ),
@@ -202,7 +202,7 @@ private struct TopSeriesRow: View {
                 sourceId: "src2", mangaId: "m5",
                 title: "Spy x Family",
                 coverUrl: nil,
-                pagesRead: 280,
+                chaptersRead: 12,
                 sessionsCount: 12,
                 hoursRead: 2.1
             )

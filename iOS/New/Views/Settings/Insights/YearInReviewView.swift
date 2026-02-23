@@ -83,13 +83,6 @@ struct YearInReviewView: View {
                 icon: "book.pages"
             )
             statCell(
-                value: data.pagesRead,
-                label: data.pagesRead == 1
-                    ? NSLocalizedString("PAGE_SINGULAR")
-                    : NSLocalizedString("PAGE_PLURAL"),
-                icon: "doc.richtext"
-            )
-            statCell(
                 value: data.hoursRead,
                 label: data.hoursRead == 1
                     ? NSLocalizedString("HOUR_SINGULAR")
@@ -153,8 +146,8 @@ struct YearInReviewView: View {
                     title: NSLocalizedString("TOP_MANGA"),
                     value: mangaTitle,
                     detail: String(
-                        format: NSLocalizedString("X_PAGES_%d", comment: ""),
-                        data.topMangaPages
+                        format: NSLocalizedString("X_CHAPTERS_%d", comment: ""),
+                        data.topMangaChapters
                     )
                 )
             }
@@ -166,7 +159,7 @@ struct YearInReviewView: View {
                     title: NSLocalizedString("TOP_SOURCE"),
                     value: sourceName,
                     detail: String(
-                        format: NSLocalizedString("X_PAGES_%d", comment: ""),
+                        format: NSLocalizedString("X_CHAPTERS_%d", comment: ""),
                         data.topSourceChapters
                     )
                 )

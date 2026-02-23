@@ -182,7 +182,7 @@ struct InsightsView: View {
                 chartLabel: NSLocalizedString("CHAPTER_PLURAL"),
                 chartSingularLabel: NSLocalizedString("CHAPTER_SINGULAR"),
                 chartData: data.chartData,
-                items: Array(data.statsData.dropFirst()),
+                items: data.statsData,
                 height: $statsGridHeight
             )
             .frame(height: statsGridHeight)

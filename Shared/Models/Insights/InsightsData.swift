@@ -23,10 +23,6 @@ struct InsightsData {
         longestStreak: Int = 0,
         heatmapData: HeatmapData = .empty(),
         chartData: [YearlyMonthData] = [],
-        pagesTotal: Int = 0,
-        pagesMonth: Int = 0,
-        pagesYear: Int = 0,
-        pagesPreviousMonth: Int = 0,
         seriesTotal: Int = 0,
         seriesMonth: Int = 0,
         seriesYear: Int = 0,
@@ -60,14 +56,6 @@ struct InsightsData {
                 previousMonth: chaptersPreviousMonth,
                 subtitle: NSLocalizedString("CHAPTER_PLURAL"),
                 singularSubtitle: NSLocalizedString("CHAPTER_SINGULAR")
-            ),
-            .init(
-                total: pagesTotal,
-                thisMonth: pagesMonth,
-                thisYear: pagesYear,
-                previousMonth: pagesPreviousMonth,
-                subtitle: NSLocalizedString("PAGE_PLURAL"),
-                singularSubtitle: NSLocalizedString("PAGE_SINGULAR")
             ),
             .init(
                 total: seriesTotal,
@@ -104,10 +92,6 @@ struct InsightsData {
                 longestStreak: longestStreak,
                 heatmapData: heatmapData,
                 chartData: chartData,
-                pagesTotal: basicStats.pagesTotal,
-                pagesMonth: basicStats.pagesMonth,
-                pagesYear: basicStats.pagesYear,
-                pagesPreviousMonth: basicStats.pagesPreviousMonth,
                 seriesTotal: basicStats.seriesTotal,
                 seriesMonth: basicStats.seriesMonth,
                 seriesYear: basicStats.seriesYear,
@@ -162,10 +146,6 @@ struct InsightsData {
                 december: 8
             ))
         ],
-        pagesTotal: 2354,
-        pagesMonth: 34,
-        pagesYear: 1234,
-        pagesPreviousMonth: 28,
         seriesTotal: 4,
         seriesMonth: 0,
         seriesYear: 2,
