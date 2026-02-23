@@ -285,16 +285,23 @@ extension CoreDataManager {
 
     // MARK: - Chapters Read Stats
 
+    struct ChaptersReadStats {
+        let total: Int
+        let month: Int
+        let year: Int
+        let previousMonth: Int
+    }
+
     func getChaptersReadStats(
         context: NSManagedObjectContext? = nil
-    ) -> (total: Int, month: Int, year: Int, previousMonth: Int) {
+    ) -> ChaptersReadStats {
         let context = context ?? self.context
         let request = NSFetchRequest<NSDictionary>(entityName: "History")
         request.resultType = .dictionaryResultType
         request.predicate = NSPredicate(format: "completed == true")
         request.propertiesToFetch = ["dateRead"]
 
-        guard let results = try? context.fetch(request) else { return (0, 0, 0, 0) }
+        guard let results = try? context.fetch(request) else { return ChaptersReadStats(total: 0, month: 0, year: 0, previousMonth: 0) }
 
         let calendar = Calendar.current
         let now = Date()
@@ -319,7 +326,7 @@ extension CoreDataManager {
             if y == prevMonthYear && m == prevMonthNum { previousMonth += 1 }
         }
 
-        return (total, month, year, previousMonth)
+        return ChaptersReadStats(total: total, month: month, year: year, previousMonth: previousMonth)
     }
 
     // MARK: - Session Stats (count + average duration)
