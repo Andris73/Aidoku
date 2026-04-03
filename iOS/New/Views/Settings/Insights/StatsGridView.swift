@@ -281,9 +281,12 @@ struct StatsGridView: View {
                     VStack {
                         Spacer()
                         HStack {
-                            VStack {
-                                Text(items[index].thisMonth, format: .number.notation(.compactName))
-                                    .font(.title.weight(.bold))
+                            VStack(spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Text(items[index].thisMonth, format: .number.notation(.compactName))
+                                        .font(.title.weight(.bold))
+                                    trendBadge(for: items[index])
+                                }
                                 Text(NSLocalizedString("THIS_MONTH"))
                                     .font(.system(size: 14))
                             }
@@ -305,6 +308,29 @@ struct StatsGridView: View {
                 }
             }
             .frame(width: size.width, height: size.height)
+        }
+    }
+
+    @ViewBuilder
+    private func trendBadge(for item: SmallStatData) -> some View {
+        if let change = item.monthOverMonthChange {
+            let isPositive = change >= 0
+            let icon = isPositive ? "arrow.up.right" : "arrow.down.right"
+            let color: Color = isPositive ? .green : .red
+            let text = String(format: "%+.0f%%", change)
+
+            HStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .bold))
+                Text(text)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(color.opacity(0.15))
+            )
         }
     }
 

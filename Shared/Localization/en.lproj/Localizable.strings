@@ -481,6 +481,36 @@
 "THIS_MONTH" = "This Month";
 "THIS_YEAR" = "This Year";
 
+// Insights - Highlights
+"HIGHLIGHTS" = "Highlights";
+"AVG_SESSION" = "Avg Session";
+"VS_LAST_MONTH" = "vs last month";
+
+// Insights - Reading Habits
+"READING_HABITS" = "Reading Habits";
+"TIME_OF_DAY" = "Time of Day";
+"DAY_OF_WEEK" = "Day of Week";
+"TIME_MORNING" = "Morning";
+"TIME_AFTERNOON" = "Afternoon";
+"TIME_EVENING" = "Evening";
+"TIME_NIGHT" = "Night";
+"MOST_ACTIVE_%@" = "Most active: %@";
+
+// Insights - Top Series
+"TOP_SERIES" = "Top Series";
+"X_SESSIONS_%d" = "%d sessions";
+"X_PAGES_%d" = "%d pages";
+"X_CHAPTERS_%d" = "%d chapters";
+
+// Insights - Year in Review
+"YEAR_IN_REVIEW_%d" = "%d Year in Review";
+"YEAR_IN_REVIEW_SUBTITLE" = "Your reading journey this year";
+"SESSION_PLURAL" = "Sessions";
+"SESSION_SINGULAR" = "Session";
+"TOP_MONTH" = "Top Month";
+"TOP_MANGA" = "Top Manga";
+"TOP_SOURCE" = "Top Source";
+
 // Source Lists
 "SOURCE_LISTS" = "Source Lists";
 "SOURCE_LIST_ADDED" = "Source List Added";
@@ -702,6 +732,13 @@
 "MIGRATE_ONE_ITEM?" = "Migrate 1 item?";
 "SOURCE_BREAKING_CHANGE" = "Source Breaking Change";
 "SOURCE_BREAKING_CHANGE_TEXT" = "This source had a breaking change and requires migration to keep your library and history.";
+"NEWER_SOURCE_AVAILABLE" = "Newer Source Available";
+"NEWER_SOURCE_MESSAGE" = "%@ has a newer chapter (Ch. %@) than your current source (Ch. %@). Would you like to migrate?";
+"CROSS_SOURCE_CHECKING" = "Cross-Source Checking";
+"CROSS_SOURCE_CHECKING_FOOTER" = "Automatically compare your library manga against other installed sources to find newer chapters. Results appear as badges in your library.";
+"EXCLUDED_SOURCES" = "Excluded Sources";
+"RUN_CROSS_SOURCE_CHECK" = "Run Cross-Source Check Now";
+"CHECKING_SOURCES" = "Checking Sources…";
 "UPLOAD_DATE" = "Upload Date";
 "ALL_CHAPTERS_READ" = "All Chapters Read";
 "ALL_CHAPTERS_LOCKED" = "All Chapters Locked";
