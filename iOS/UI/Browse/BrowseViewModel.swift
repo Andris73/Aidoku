@@ -16,16 +16,23 @@ class BrowseViewModel {
 
     var unfilteredExternalSources: [ExternalSourceInfo] = []
 
+    var hasLegacySourceList = false
+
     // stored sources when searching
     private var query: String?
     private var storedUpdatesSources: [SourceInfo2]?
     private var storedPinnedSources: [SourceInfo2]?
     private var storedInstalledSources: [SourceInfo2]?
-    private var storedExternalSources: [SourceInfo2]?
 
     private func getInstalledSources() async -> [SourceInfo2] {
-        await SourceManager.shared.loadSources()
-        return SourceManager.shared.sources.map { $0.toInfo() }
+        await SourceManager.shared.waitForSourcesLoad()
+        return SourceManager.shared.sources
+            .map { source in
+                var info = source.toInfo()
+                let externalInfo = unfilteredExternalSources.first { $0.id == info.sourceId }
+                info.externalInfo = externalInfo
+                return info
+            }
     }
 
     // load installed sources
@@ -78,6 +85,9 @@ class BrowseViewModel {
         var sourceById: [String: ExternalSourceInfo] = [:]
 
         for sourceList in SourceManager.shared.sourceLists {
+            if sourceList.legacy {
+                hasLegacySourceList = true
+            }
             for source in sourceList.sources {
                 if let existing = sourceById[source.id] {
                     // if a newer version exists, replace it
@@ -91,6 +101,22 @@ class BrowseViewModel {
         }
 
         unfilteredExternalSources = Array(sourceById.values)
+
+        func updateExternalInfo(for property: inout [SourceInfo2]) {
+            property = property.map { info in
+                if let externalInfo = unfilteredExternalSources.first(where: { $0.id == info.sourceId }) {
+                    var updatedInfo = info
+                    updatedInfo.externalInfo = externalInfo
+                    return updatedInfo
+                }
+                return info
+            }
+        }
+
+        if query?.isEmpty ?? true {
+            updateExternalInfo(for: &pinnedSources)
+            updateExternalInfo(for: &installedSources)
+        }
     }
 
     func loadUpdates() {

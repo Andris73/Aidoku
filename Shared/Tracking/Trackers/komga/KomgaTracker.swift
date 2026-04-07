@@ -78,7 +78,7 @@ final class KomgaTracker: EnhancedTracker, PageTracker {
     }
 
     func canRegister(sourceKey: String, mangaKey: String) -> Bool {
-        sourceKey.hasPrefix("komga")
+        sourceKey.hasPrefix(KomgaSourceRunner.sourceKeyPrefix) && !UserDefaults.standard.bool(forKey: "\(sourceKey).disableTracking")
     }
 
     func setProgress(trackId: String, chapter: AidokuRunner.Chapter, progress: ChapterReadProgress) async throws {
@@ -97,6 +97,29 @@ final class KomgaTracker: EnhancedTracker, PageTracker {
 
     func logout() {
         fatalError("logout not implemented for komga tracker")
+    }
+
+    func removeTrackItems(source: AidokuRunner.Source) async {
+        await CoreDataManager.shared.container.performBackgroundTask { context in
+            let request = TrackObject.fetchRequest()
+            request.predicate = NSPredicate(
+                format: "trackerId == %@", self.id
+            )
+            do {
+                let items = try? context.fetch(request)
+                guard let items else { return }
+                for item in items {
+                    guard let id = item.id else { continue }
+                    let (sourceKey, _) = try self.getIdParts(from: id)
+                    if sourceKey == source.key {
+                        context.delete(item)
+                    }
+                }
+                try context.save()
+            } catch {
+                LogManager.logger.error("Error removing komga track items: \(error)")
+            }
+        }
     }
 }
 

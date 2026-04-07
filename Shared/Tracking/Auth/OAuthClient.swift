@@ -19,10 +19,10 @@ actor OAuthClient {
     let baseUrl: String
     let challengeMethod: OAuthCodeChallengeMethod
 
-    enum OAuthCodeChallengeMethod {
+    enum OAuthCodeChallengeMethod: String {
         case none
         case plain
-        case s256
+        case s256 = "S256"
     }
 
     var codeVerifier = ""
@@ -59,6 +59,7 @@ actor OAuthClient {
         }
         if challengeMethod != .none {
             queryItems.append(URLQueryItem(name: "code_challenge", value: generatePkceChallenge(method: challengeMethod)))
+            queryItems.append(URLQueryItem(name: "code_challenge_method", value: challengeMethod.rawValue))
         }
         if let extraQueryItems {
             for (key, value) in extraQueryItems {
@@ -72,7 +73,7 @@ actor OAuthClient {
 
 // MARK: - Tokens
 extension OAuthClient {
-    func getAccessToken(authCode: String) async -> OAuthResponse? {
+    func getAccessToken(authCode: String, redirectUri: String? = nil) async -> OAuthResponse? {
         guard let url = URL(string: baseUrl + "/token") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -83,6 +84,9 @@ extension OAuthClient {
         ]
         if challengeMethod != .none {
             body["code_verifier"] = codeVerifier
+        }
+        if let redirectUri {
+            body["redirect_uri"] = redirectUri
         }
         request.httpBody = body.percentEncoded()
         tokens = try? await URLSession.shared.object(from: request)
@@ -102,7 +106,7 @@ extension OAuthClient {
 //    }
 
     func loadTokens() {
-        if let data = UserDefaults.standard.data(forKey: "Token.\(id).oauth") {
+        if let data = UserDefaults.standard.data(forKey: "Tracker.\(id).oauth") {
             tokens = (try? JSONDecoder().decode(OAuthResponse.self, from: data)) ?? OAuthResponse()
         } else {
             tokens = OAuthResponse()
@@ -110,7 +114,7 @@ extension OAuthClient {
     }
 
     func saveTokens() {
-        UserDefaults.standard.set(try? JSONEncoder().encode(tokens), forKey: "Token.\(id).oauth")
+        UserDefaults.standard.set(try? JSONEncoder().encode(tokens), forKey: "Tracker.\(id).oauth")
     }
 
     func setTokens(_ response: OAuthResponse?) {

@@ -62,7 +62,7 @@ final class ShikimoriTracker: OAuthTracker {
         if let authCode = url.queryParameters?["code"] {
             let oauth = await api.getAccessToken(authCode: authCode)
             token = oauth?.accessToken
-            UserDefaults.standard.set(try? JSONEncoder().encode(oauth), forKey: "Token.\(id).oauth")
+            UserDefaults.standard.set(try? JSONEncoder().encode(oauth), forKey: "Tracker.\(id).oauth")
         }
     }
 }
@@ -72,7 +72,7 @@ private extension ShikimoriTracker {
         guard let result = await api.search(query: query, censored: !includeNsfw) else {
             return []
         }
-        return result.data.mangas.map {
+        return result.data?.mangas.map {
             TrackSearchItem(
                 id: $0.id,
                 title: $0.russian ?? $0.name,
@@ -80,7 +80,7 @@ private extension ShikimoriTracker {
                 type: getMediaType(typeString: $0.kind),
                 tracked: false
             )
-        }
+        } ?? []
     }
 
     func getMediaType(typeString: String) -> MediaType {

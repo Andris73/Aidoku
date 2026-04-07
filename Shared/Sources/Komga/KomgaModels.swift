@@ -239,19 +239,19 @@ struct KomgaBookReadProgress: Codable {
 }
 
 extension KomgaBook {
-    func intoManga(sourceKey: String, baseUrl: String) -> AidokuRunner.Manga {
+    func intoManga(sourceKey: String, baseUrl: URL) -> AidokuRunner.Manga {
         .init(
             sourceKey: sourceKey,
             key: seriesId,
             title: metadata.title,
-            cover: "\(baseUrl)/api/v1/books/\(id)/thumbnail",
+            cover: URL(string: "api/v1/books/\(id)/thumbnail", relativeTo: baseUrl)?.absoluteString,
             authors: metadata.authors.map { $0.name },
-            url: URL(string: "\(baseUrl)/series/\(seriesId)"),
+            url: URL(string: "series/\(seriesId)", relativeTo: baseUrl),
             tags: metadata.tags,
         )
     }
 
-    func intoChapter(baseUrl: String, useChapters: Bool) -> AidokuRunner.Chapter {
+    func intoChapter(baseUrl: URL, useChapters: Bool) -> AidokuRunner.Chapter {
         .init(
             key: id,
             title: metadata.title,
@@ -265,9 +265,9 @@ extension KomgaBook {
                     nil
                 }
             },
-            url: URL(string: "\(baseUrl)/book/\(id)"),
+            url: URL(string: "book/\(id)", relativeTo: baseUrl),
             language: "en",
-            thumbnail: "\(baseUrl)/api/v1/books/\(id)/thumbnail",
+            thumbnail: URL(string: "api/v1/books/\(id)/thumbnail", relativeTo: baseUrl)?.absoluteString,
         )
     }
 }
@@ -304,6 +304,7 @@ struct KomgaSeries: Codable, Sendable {
     struct BooksMetadata: Codable, Sendable {
         let authors: [KomgaBook.Metadata.Author]
         let summary: String?
+        let tags: [String]
     }
 
     let id: String
@@ -312,10 +313,11 @@ struct KomgaSeries: Codable, Sendable {
     let metadata: Metadata
     let booksMetadata: BooksMetadata
     let booksCount: Int
+    let oneshot: Bool?
 }
 
 extension KomgaSeries {
-    func intoManga(sourceKey: String, baseUrl: String) -> AidokuRunner.Manga {
+    func intoManga(sourceKey: String, baseUrl: URL) -> AidokuRunner.Manga {
         let status: AidokuRunner.PublishingStatus = switch metadata.status {
             case .ended: .completed
             case .ongoing: .ongoing
@@ -339,11 +341,19 @@ extension KomgaSeries {
             case .unknown: .unknown
         }
 
+        // genres first (sorted), then series tags (sorted), then book-only tags (sorted)
+        let genres = metadata.genres.filter { !$0.isEmpty }.sorted()
+        let seriesTags = metadata.tags.filter { !$0.isEmpty }.sorted()
+        let bookTags = booksMetadata.tags.filter { !$0.isEmpty }
+        let seriesSet = Set(seriesTags)
+        let bookOnly = Set(bookTags).subtracting(seriesSet).sorted()
+        let tags = genres + seriesTags + bookOnly
+
         return .init(
             sourceKey: sourceKey,
             key: id,
             title: metadata.title,
-            cover: "\(baseUrl)/api/v1/series/\(id)/thumbnail",
+            cover: URL(string: "api/v1/series/\(id)/thumbnail", relativeTo: baseUrl)?.absoluteString,
             artists: booksMetadata.authors.compactMap {
                 if $0.role == "penciller" {
                     $0.name
@@ -360,8 +370,8 @@ extension KomgaSeries {
             },
             description: (metadata.summary.isEmpty ? booksMetadata.summary : metadata.summary)?
                 .replacingOccurrences(of: "\n", with: "  \n"),
-            url: URL(string: "\(baseUrl)/series/\(id)"),
-            tags: (metadata.genres + metadata.tags).sorted(),
+            url: URL(string: "series/\(id)", relativeTo: baseUrl),
+            tags: tags,
             status: status,
             contentRating: contentRating,
             viewer: viewer,

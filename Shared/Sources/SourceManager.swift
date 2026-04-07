@@ -16,7 +16,8 @@ import UIKit
 class SourceManager {
     static let shared = SourceManager()
 
-    static let directory = FileManager.default.documentDirectory.appendingPathComponent("Sources", isDirectory: true)
+    static let directory = FileManager.default.applicationSupportDirectory.appendingPathComponent("Sources", isDirectory: true)
+    static let oldDirectory = FileManager.default.documentDirectory.appendingPathComponent("Sources", isDirectory: true) // used for migration
 
     var sources: [AidokuRunner.Source] = []
     var sourceLists: [SourceList] = []
@@ -43,25 +44,7 @@ class SourceManager {
             .compactMap { URL(string: $0) }
 
         loadSourcesTask = Task {
-            // load installed sources
-            sources = await getInstalledSources()
-            sortSources()
-            for source in sources {
-                NotificationCenter.default.post(name: .sourceLoaded, object: source.key)
-            }
-            NotificationCenter.default.post(name: .updateSourceList, object: nil)
-
-            // load source filters
-            await withTaskGroup(of: Void.self) { group in
-                for source in sources {
-                    if let legacySource = source.legacySource {
-                        group.addTask {
-                            _ = try? await legacySource.getFilters()
-                        }
-                    }
-                }
-            }
-            NotificationCenter.default.post(name: .loadedSourceFilters, object: nil)
+            await reloadSources()
         }
 
         Task {
@@ -69,7 +52,29 @@ class SourceManager {
         }
     }
 
-    func loadSources() async {
+    func reloadSources() async {
+        // load installed sources
+        sources = await getInstalledSources()
+        sortSources()
+        for source in sources {
+            NotificationCenter.default.post(name: .sourceLoaded, object: source.key)
+        }
+        NotificationCenter.default.post(name: .updateSourceList, object: nil)
+
+        // load source filters
+        await withTaskGroup(of: Void.self) { group in
+            for source in sources {
+                if let legacySource = source.legacySource {
+                    group.addTask {
+                        _ = try? await legacySource.getFilters()
+                    }
+                }
+            }
+        }
+        NotificationCenter.default.post(name: .loadedSourceFilters, object: nil)
+    }
+
+    func waitForSourcesLoad() async {
         await loadSourcesTask?.value
     }
 
@@ -114,6 +119,8 @@ class SourceManager {
                 } else {
                     sources.append(source)
                 }
+            } else {
+                LogManager.logger.error("Failed to load source \(dbSource.id)")
             }
         }
         return sources
@@ -184,6 +191,12 @@ extension SourceManager {
         } else if let legacySource {
             id = legacySource.id
         } else {
+            return nil
+        }
+
+        // ensure id is valid
+        guard isValidSourceKey(id) else {
+            LogManager.logger.error("Invalid source key: \(id)")
             return nil
         }
 
@@ -274,13 +287,13 @@ extension SourceManager {
     func createCustomSource(
         kind: CustomSourceKind,
         name: String,
-        server: String,
+        server: URL,
         username: String? = nil,
         password: String? = nil,
     ) async -> String {
         let keyPrefix = switch kind {
-            case .komga: "komga."
-            case .kavita: "kavita."
+            case .komga: KomgaSourceRunner.sourceKeyPrefix
+            case .kavita: KavitaSourceRunner.sourceKeyPrefix
         }
         let nameEncoded = name.lowercased().replacingOccurrences(of: " ", with: "-")
         var key = "\(keyPrefix)\(nameEncoded)"
@@ -293,8 +306,8 @@ extension SourceManager {
         }
 
         let config = switch kind {
-            case .komga: CustomSourceConfig.komga(key: key, name: name, server: server)
-            case .kavita: CustomSourceConfig.kavita(key: key, name: name, server: server)
+            case .komga: CustomSourceConfig.komga(key: key, name: name, server: server.absoluteString)
+            case .kavita: CustomSourceConfig.kavita(key: key, name: name, server: server.absoluteString)
         }
         let source = config.toSource()
 
@@ -306,7 +319,11 @@ extension SourceManager {
         }
 
         // register details
-        UserDefaults.standard.setValue(server, forKey: "\(key).server")
+        var url = server.absoluteString
+        if url.last == "/" {
+            url.removeLast()
+        }
+        UserDefaults.standard.setValue(url, forKey: "\(key).server")
         if username != nil || password != nil {
             UserDefaults.standard.setValue("logged_in", forKey: "\(key).login")
         }
@@ -360,8 +377,13 @@ extension SourceManager {
         }
         sources.removeAll { $0.id == source.id }
         Task {
+            if source.key.hasPrefix(KomgaSourceRunner.sourceKeyPrefix) {
+                await TrackerManager.komga.removeTrackItems(source: source)
+            } else if source.key.hasPrefix(KavitaSourceRunner.sourceKeyPrefix) {
+                await TrackerManager.kavita.removeTrackItems(source: source)
+            }
             await CoreDataManager.shared.container.performBackgroundTask { context in
-                CoreDataManager.shared.removeSource(id: source.id, context: context)
+                CoreDataManager.shared.removeSource(id: source.key, context: context)
                 try? context.save()
             }
             NotificationCenter.default.post(name: .sourceUnloaded, object: source.key)
@@ -398,6 +420,49 @@ extension SourceManager {
             UserDefaults.standard.set(pinnedList, forKey: key)
         }
         NotificationCenter.default.post(name: .updateSourceList, object: nil)
+    }
+
+    func updateCustomSource(key: String, config: CustomSourceConfig, updateSourceList: Bool = false) {
+        Task {
+            let newDbSource = await CoreDataManager.shared.container.performBackgroundTask { context in
+                let source = CoreDataManager.shared.getSource(id: key, context: context)
+                source?.customSource = config.encode() as NSObject
+                try? context.save()
+                return source?.toData()
+            }
+            if updateSourceList, let newSource = await newDbSource?.toNewSource() {
+                await MainActor.run {
+                    if let index = self.sources.firstIndex(where: { $0.id == newSource.id }) {
+                        self.sources[index] = newSource
+                    }
+                    NotificationCenter.default.post(name: .updateSourceList, object: nil)
+                }
+            }
+        }
+    }
+
+    // checks if a source key matches ^[A-Za-z0-9.\-]+$ and doesn't use a reserved prefix
+    private func isValidSourceKey(_ sourceKey: String) -> Bool {
+        guard !sourceKey.isEmpty else {
+            return false
+        }
+
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+        let allCharactersValid = sourceKey.unicodeScalars.allSatisfy { allowedCharacters.contains($0) }
+        guard allCharactersValid else {
+            return false
+        }
+
+        let reservedPrefixes =
+            ["komga", "kavita", "local"] // built-in sources
+            + BackupManager.allowedSettingsPrefixes
+            + BackupManager.excludedSettingsPrefixes
+        let usesReservedPrefix = reservedPrefixes.contains(where: { sourceKey.hasPrefix($0) })
+        guard !usesReservedPrefix else {
+            return false
+        }
+
+        return true
     }
 }
 
@@ -473,8 +538,9 @@ extension SourceManager {
             }
             return SourceList(
                 url: url,
-                name: "Legacy Source List",
-                sources: externalSources
+                name: NSLocalizedString("LEGACY_SOURCE_LIST"),
+                sources: externalSources,
+                legacy: true
             )
         }
     }

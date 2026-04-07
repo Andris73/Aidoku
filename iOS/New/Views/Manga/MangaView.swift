@@ -12,7 +12,8 @@ import SwiftUI
 struct MangaView: View {
     @StateObject private var viewModel: ViewModel
 
-    @State private var scrollToChapterKey: String?
+    @State private var targetChapterKey: String?
+    @State private var openAction: OpenAction?
 
     @State private var editMode = EditMode.inactive
     @State private var selectedChapters = Set<String>()
@@ -34,16 +35,24 @@ struct MangaView: View {
 
     @Namespace private var transitionNamespace
 
+    enum OpenAction: String {
+        case read
+        case readNext
+        case readLatest
+    }
+
     init(
         source: AidokuRunner.Source? = nil,
         manga: AidokuRunner.Manga,
         path: NavigationCoordinator,
-        scrollToChapterKey: String? = nil
+        chapterKey: String? = nil,
+        openAction: OpenAction? = nil
     ) {
         let source = source ?? SourceManager.shared.source(for: manga.sourceKey)
         self._viewModel = StateObject(wrappedValue: ViewModel(source: source, manga: manga))
         self.path = path
-        self._scrollToChapterKey = State(initialValue: scrollToChapterKey)
+        self._targetChapterKey = State(initialValue: chapterKey)
+        self._openAction = State(initialValue: openAction)
     }
 
     var body: some View {
@@ -202,12 +211,30 @@ struct MangaView: View {
                 guard !detailsLoaded else { return }
                 await viewModel.markUpdatesViewed()
                 await viewModel.fetchDetails()
-                if let scrollToChapterKey {
-                    withAnimation {
-                        proxy.scrollTo(scrollToChapterKey, anchor: .center)
+
+                if let openAction {
+                    switch openAction {
+                        case .read:
+                            if let targetChapterKey, let chapter = viewModel.chapters.first(where: { $0.key == targetChapterKey }) {
+                                openChapter = chapter
+                            }
+                        case .readNext:
+                            if let nextChapter = viewModel.nextChapter {
+                                openChapter = nextChapter
+                            }
+                        case .readLatest:
+                            if let latestChapter = viewModel.chapters.first {
+                                openChapter = latestChapter
+                            }
                     }
-                    self.scrollToChapterKey = nil
+                } else if let targetChapterKey {
+                    withAnimation {
+                        proxy.scrollTo(targetChapterKey, anchor: .center)
+                    }
                 }
+                self.openAction = nil
+                self.targetChapterKey = nil
+
                 await viewModel.syncTrackerProgress()
                 detailsLoaded = true
             }
@@ -848,7 +875,7 @@ private struct RightNavbarButton: View, Equatable {
         editMode: Binding<EditMode>
     ) {
         self.bookmarked = viewModel.bookmarked
-        self.hasCategories = !CoreDataManager.shared.getCategories(sorted: false).isEmpty
+        self.hasCategories = !CoreDataManager.shared.getCategoryTitles(sorted: false).isEmpty
         self.url = viewModel.manga.url
         self.hasDownloads = viewModel.downloadStatus.contains(where: { $0.value == .finished })
         self.markAllRead = markAllRead

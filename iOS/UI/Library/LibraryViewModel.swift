@@ -114,55 +114,6 @@ class LibraryViewModel {
         static let downloaded = BadgeType(rawValue: 1 << 1)
     }
 
-    struct LibraryFilter: Codable {
-        var type: FilterMethod
-        var value: String?
-        var exclude: Bool
-    }
-
-    enum FilterMethod: Int, Codable, CaseIterable {
-        case downloaded
-        case tracking
-        case hasUnread
-        case started
-        case completed
-        case source
-        case contentRating
-
-        var title: String {
-            switch self {
-                case .downloaded: NSLocalizedString("DOWNLOADED")
-                case .tracking: NSLocalizedString("IS_TRACKING")
-                case .hasUnread: NSLocalizedString("FILTER_HAS_UNREAD")
-                case .started: NSLocalizedString("FILTER_STARTED")
-                case .completed: NSLocalizedString("COMPLETED")
-                case .source: NSLocalizedString("SOURCES")
-                case .contentRating: NSLocalizedString("CONTENT_RATING")
-            }
-        }
-
-        var image: UIImage? {
-            let name = switch self {
-                case .downloaded: "arrow.down.circle"
-                case .tracking: "clock.arrow.trianglehead.2.counterclockwise.rotate.90"
-                case .hasUnread: "eye.slash"
-                case .started: "clock"
-                case .completed: "checkmark.circle"
-                case .source: "globe"
-                case .contentRating: "exclamationmark.triangle.fill"
-            }
-            return UIImage(systemName: name)
-        }
-
-        var isAvailable: Bool {
-            switch self {
-                case .tracking: TrackerManager.hasAvailableTrackers
-                case .source, .contentRating: false // needs custom handling
-                default: true
-            }
-        }
-    }
-
     lazy var pinType: PinType = getPinType()
     lazy var sortMethod = SortMethod(rawValue: UserDefaults.standard.integer(forKey: "Library.sortOption")) ?? .lastOpened
     lazy var sortAscending = UserDefaults.standard.bool(forKey: "Library.sortAscending")
@@ -184,10 +135,21 @@ class LibraryViewModel {
     }
 
     var categories: [String] = []
+    var filterGroups: [FilterGroup] = []
     lazy var currentCategory: String? = UserDefaults.standard.string(forKey: "Library.currentCategory") {
         didSet {
             UserDefaults.standard.set(currentCategory, forKey: "Library.currentCategory")
         }
+    }
+    var isInRealCategory: Bool {
+        if let currentCategory, !currentCategory.isEmpty {
+            categories.contains(currentCategory)
+        } else {
+            false
+        }
+    }
+    var isInUncategorizedCategory: Bool {
+        currentCategory?.isEmpty ?? false
     }
     private(set) var actuallyEmpty = true
 
@@ -205,8 +167,9 @@ class LibraryViewModel {
 extension LibraryViewModel {
     func isCategoryLocked() -> Bool {
         guard UserDefaults.standard.bool(forKey: "Library.lockLibrary") else { return false }
-        if let currentCategory = currentCategory {
-            return UserDefaults.standard.stringArray(forKey: "Library.lockedCategories")?.contains(currentCategory) ?? false
+        if let currentCategory, !currentCategory.isEmpty {
+            let lockedCategories = UserDefaults.standard.stringArray(forKey: "Library.lockedCategories") ?? []
+            return lockedCategories.contains(currentCategory)
         }
         return true
     }
@@ -215,23 +178,35 @@ extension LibraryViewModel {
         UserDefaults.standard.string(forKey: "Library.pinTitles").flatMap(PinType.init) ?? .none
     }
 
-    func refreshCategories() async {
-        categories = await CoreDataManager.shared.container.performBackgroundTask { @Sendable context in
-            CoreDataManager.shared.getCategories(context: context).map { $0.title ?? "" }
+    func refreshCategories(skipDataLoad: Bool = false) async {
+        (categories, filterGroups) = await CoreDataManager.shared.container.performBackgroundTask { @Sendable context in
+            (
+                CoreDataManager.shared.getCategoryTitles(context: context),
+                CoreDataManager.shared.getFilterGroups(context: context)
+            )
         }
-        if currentCategory != nil && !categories.contains(currentCategory!) {
-            currentCategory = nil
-            await loadLibrary()
+        if !skipDataLoad {
+            let isInFilterGroup = filterGroups.contains(where: { $0.title == currentCategory })
+            let showUncategorized = UserDefaults.standard.bool(forKey: "Library.showUncategorizedCategory")
+            if let currentCategory, (!categories.contains(currentCategory) && !isInFilterGroup) || (currentCategory.isEmpty && !showUncategorized) {
+                self.currentCategory = nil
+                await loadLibrary()
+            } else if isInFilterGroup {
+                // refresh filter group in case filters changed
+                await loadLibrary()
+            }
         }
     }
 
     // swiftlint:disable:next cyclomatic_complexity
     func loadLibrary() async {
-        let currentCategory = self.currentCategory
-        let sortMethod = self.sortMethod
-        let sortAscending = self.sortAscending
-        let filters = self.filters
-        let pinType = self.pinType
+        // handle filter groups
+        let filters = if let currentCategory, let group = filterGroups.first(where: { $0.title == currentCategory }) {
+            group.filters + self.filters
+        } else {
+            self.filters
+        }
+        let currentCategory = (isInUncategorizedCategory || isInRealCategory) ? self.currentCategory : nil
 
         let (
             success,
@@ -240,7 +215,7 @@ extension LibraryViewModel {
             manga,
             sourceKeys,
             unappliedFilters
-        ) = await CoreDataManager.shared.container.performBackgroundTask { @Sendable context in
+        ) = await CoreDataManager.shared.container.performBackgroundTask { @Sendable [sortMethod, sortAscending, pinType] context in
             var pinnedManga: [MangaInfo] = []
             var manga: [MangaInfo] = []
             var sourceKeys: Set<String> = []
@@ -248,7 +223,11 @@ extension LibraryViewModel {
 
             let request = LibraryMangaObject.fetchRequest()
             if let currentCategory {
-                request.predicate = NSPredicate(format: "manga != nil AND ANY categories.title == %@", currentCategory)
+                if currentCategory.isEmpty {
+                    request.predicate = NSPredicate(format: "manga != nil AND categories.@count == 0")
+                } else {
+                    request.predicate = NSPredicate(format: "manga != nil AND ANY categories.title == %@", currentCategory)
+                }
             } else {
                 request.predicate = NSPredicate(format: "manga != nil")
             }
@@ -273,7 +252,11 @@ extension LibraryViewModel {
                     let mangaObject = libraryObject.manga,
                     // ensure the manga hasn't already been accounted for
                     ids.insert("\(mangaObject.sourceId)|\(mangaObject.id)").inserted
-                else { continue }
+                else {
+                    continue
+                }
+
+                let categories = (libraryObject.categories?.allObjects as? [CategoryObject])?.map { $0.title } ?? []
 
                 let info = MangaInfo(
                     mangaId: mangaObject.id,
@@ -289,6 +272,7 @@ extension LibraryViewModel {
                 // process filters
                 var filteredSourceKeys: Set<String> = []
                 var filteredContentRatings: Set<Int16> = []
+                var filteredCategories: Set<String> = []
                 for filter in filters {
                     let condition: Bool
                     switch filter.type {
@@ -330,6 +314,16 @@ extension LibraryViewModel {
                                 filteredContentRatings.insert(Int16(contentRating.rawValue))
                                 continue
                             }
+                        case .category:
+                            guard let category = filter.value else { continue }
+                            if filter.exclude {
+                                condition = categories.contains(category)
+                            } else {
+                                // handle included category filters as OR
+                                filteredCategories.insert(category)
+                                continue
+                            }
+
                     }
                     let shouldSkip = filter.exclude ? condition : !condition
                     if shouldSkip {
@@ -340,6 +334,9 @@ extension LibraryViewModel {
                     continue main
                 }
                 if !filteredContentRatings.isEmpty && !filteredContentRatings.contains(mangaObject.nsfw) {
+                    continue main
+                }
+                if !filteredCategories.isEmpty && !filteredCategories.contains(where: { categories.contains($0) }) {
                     continue main
                 }
 
@@ -700,7 +697,7 @@ extension LibraryViewModel {
         await sortLibrary()
     }
 
-    func toggleFilter(method: FilterMethod, value: String? = nil) async {
+    func toggleFilter(method: LibraryFilter.FilterMethod, value: String? = nil) async {
         let filterIndex = filters.firstIndex(where: { $0.type == method && $0.value == value })
         if let filterIndex {
             if filters[filterIndex].exclude {
@@ -809,7 +806,7 @@ extension LibraryViewModel {
     }
 
     func addToCurrentCategory(manga: MangaInfo) async {
-        guard let currentCategory = currentCategory else { return }
+        guard let currentCategory, isInRealCategory else { return }
         await CoreDataManager.shared.addCategoriesToManga(
             sourceId: manga.sourceId,
             mangaId: manga.mangaId,
@@ -818,7 +815,7 @@ extension LibraryViewModel {
     }
 
     func removeFromCurrentCategory(manga: MangaInfo) async {
-        guard let currentCategory = currentCategory else { return }
+        guard let currentCategory, isInRealCategory else { return }
         pinnedManga.removeAll { $0.mangaId == manga.mangaId && $0.sourceId == manga.sourceId }
         self.manga.removeAll { $0.mangaId == manga.mangaId && $0.sourceId == manga.sourceId }
         await CoreDataManager.shared.removeCategoriesFromManga(

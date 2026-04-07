@@ -199,7 +199,7 @@ extension ReaderWebtoonViewController {
         let page = getCurrentPage()
         if previousPage != page {
             previousPage = page
-            delegate?.setCurrentPage(page)
+            delegate?.setCurrentPage(page, position: nil)
         }
     }
 
@@ -308,27 +308,35 @@ extension ReaderWebtoonViewController {
 
     // check for infinite load when deceleration stops
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if decelerate {
+        if UserDefaults.standard.bool(forKey: "Reader.hideBarsOnSwipe") {
+            delegate?.hideBars()
+        }
+
+        guard !decelerate else {
             return
         }
         setLiveTextButtonHidden(false)
-        guard infinite else { return }
-        isScrolling = false
-        checkInfiniteLoad()
+
+        if infinite {
+            isScrolling = false
+            checkInfiniteLoad()
+        }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         setLiveTextButtonHidden(false)
-        guard infinite else { return }
-        isScrolling = false
-        checkInfiniteLoad()
+        if infinite {
+            isScrolling = false
+            checkInfiniteLoad()
+        }
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         setLiveTextButtonHidden(false)
-        guard infinite else { return }
-        isScrolling = false
-        checkInfiniteLoad()
+        if infinite {
+            isScrolling = false
+            checkInfiniteLoad()
+        }
     }
 
     // check if at the top or bottom to append the next/prev chapter

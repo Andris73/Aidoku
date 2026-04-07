@@ -15,13 +15,13 @@ import UIKit
 extension AidokuRunner.Source {
     static func kavita(
         key: String = "kavita",
-        name: String? = nil,
-        server: String? = nil
+        name: String,
+        server: String
     ) -> AidokuRunner.Source {
         .init(
             url: nil,
             key: key,
-            name: name ?? NSLocalizedString("KAVITA"),
+            name: name,
             version: 1,
             languages: ["multi"],
             urls: UserDefaults.standard.string(forKey: "\(key).server")
@@ -95,33 +95,15 @@ extension AidokuRunner.Source {
                     ))
                 )
             ],
-            staticSettings: [
-                .init(
-                    title: "SERVER_URL",
-                    value: .group(.init(
-                        footer: "SERVER_URL_INFO",
-                        items: [
-                            .init(
-                                key: "server",
-                                value: .text(.init(
-                                    placeholder: "https://demo.kavitareader.com",
-                                    autocapitalizationType: UITextAutocapitalizationType.none.rawValue,
-                                    keyboardType: UIKeyboardType.URL.rawValue,
-                                    returnKeyType: UIReturnKeyType.done.rawValue,
-                                    autocorrectionDisabled: true,
-                                    defaultValue: server
-                                ))
-                            )
-                        ]
-                    ))
-                )
-            ],
-            runner: KavitaSourceRunner(sourceKey: key)
+            staticSettings: [],
+            runner: KavitaSourceRunner(sourceKey: key, name: name, server: server)
         )
     }
 }
 
 actor KavitaSourceRunner: Runner {
+    static let sourceKeyPrefix = "kavita"
+
     let sourceKey: String
     let helper: KavitaHelper
 
@@ -138,9 +120,14 @@ actor KavitaSourceRunner: Runner {
         handlesWebLogin: true
     )
 
-    init(sourceKey: String) {
+    private var name: String
+    private var server: String
+
+    init(sourceKey: String, name: String, server: String) {
         self.sourceKey = sourceKey
         self.helper = .init(sourceKey: sourceKey)
+        self.name = name
+        self.server = server
     }
 
     struct FilterItem {
@@ -148,23 +135,28 @@ actor KavitaSourceRunner: Runner {
         let title: String
     }
 
-    var storedGenres: [FilterItem] = []
-    var storedTags: [FilterItem] = []
+    private var storedGenres: [FilterItem] = []
+    private var storedTags: [FilterItem] = []
+    private var lastWorkingMirror: URL?
 
     func getSearchMangaList(query: String?, page: Int, filters: [AidokuRunner.FilterValue]) async throws -> AidokuRunner.MangaPageResult {
+        var baseUrl = try helper.getConfiguredServer()
+        let apiKey = helper.getApiKey()
         let filter = try await helper.getSearchFilter(
             query: query,
             filters: filters,
             storedGenres: storedGenres,
             storedTags: storedTags
         )
+        var lastWorkingMirrorCopy = lastWorkingMirror
         let res: [KavitaSeries] = try await helper.request(
-            path: "/api/series/v2",
+            path: "api/series/v2",
             method: .POST,
-            body: JSONEncoder().encode(filter)
+            body: JSONEncoder().encode(filter),
+            lastWorkingMirror: &lastWorkingMirrorCopy
         )
-        let baseUrl = try helper.getConfiguredServer()
-        let apiKey = helper.getApiKey()
+        lastWorkingMirror = lastWorkingMirrorCopy
+        baseUrl = lastWorkingMirrorCopy ?? baseUrl
         return .init(
             entries: res.map { $0.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey) },
             hasNextPage: false
@@ -172,19 +164,32 @@ actor KavitaSourceRunner: Runner {
     }
 
     func getMangaUpdate(manga: AidokuRunner.Manga, needsDetails: Bool, needsChapters: Bool) async throws -> AidokuRunner.Manga {
-        let baseUrl = try helper.getConfiguredServer()
+        var baseUrl = try helper.getConfiguredServer()
         let apiKey = helper.getApiKey()
+
+        var lastWorkingMirrorCopy = lastWorkingMirror
+        defer {
+            lastWorkingMirror = lastWorkingMirrorCopy
+        }
 
         var manga = manga
 
         if needsDetails {
-            let series: KavitaSeries = try await helper.request(path: "/api/Series/\(manga.key)")
-            let metadata: KavitaSeriesMetadata = try await helper.request(path: "/api/Series/metadata?seriesId=\(manga.key)")
+            let series: KavitaSeries = try await helper.request(path: "api/Series/\(manga.key)", lastWorkingMirror: &lastWorkingMirrorCopy)
+            let metadata: KavitaSeriesMetadata = try await helper.request(
+                path: "api/Series/metadata?seriesId=\(manga.key)",
+                lastWorkingMirror: &lastWorkingMirrorCopy
+            )
+            baseUrl = lastWorkingMirrorCopy ?? baseUrl
             manga = manga.copy(from: series.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey, metadata: metadata))
         }
 
         if needsChapters {
-            let volumes: [KavitaVolume] = try await helper.request(path: "/api/Series/volumes?seriesId=\(manga.key)")
+            let volumes: [KavitaVolume] = try await helper.request(
+                path: "api/Series/volumes?seriesId=\(manga.key)",
+                lastWorkingMirror: &lastWorkingMirrorCopy
+            )
+            baseUrl = lastWorkingMirrorCopy ?? baseUrl
             var chapters = volumes.flatMap { $0.intoChapters(baseUrl: baseUrl, apiKey: apiKey) }
             chapters.sort { a, b in
                 if a.volumeNumber == b.volumeNumber {
@@ -208,42 +213,54 @@ actor KavitaSourceRunner: Runner {
     }
 
     func getPageList(manga: AidokuRunner.Manga, chapter: AidokuRunner.Chapter) async throws -> [AidokuRunner.Page] {
-        let chapter: KavitaVolume.Chapter = try await helper.request(
-            path: "/api/Series/chapter?chapterId=\(chapter.key)"
-        )
-
-        let baseUrl = try helper.getConfiguredServer()
+        var baseUrl = try helper.getConfiguredServer()
         let apiKey = helper.getApiKey()
 
+        var lastWorkingMirrorCopy = lastWorkingMirror
+        let chapter: KavitaVolume.Chapter = try await helper.request(
+            path: "api/Series/chapter?chapterId=\(chapter.key)",
+            lastWorkingMirror: &lastWorkingMirrorCopy
+        )
+        lastWorkingMirror = lastWorkingMirrorCopy
+
+        baseUrl = lastWorkingMirrorCopy ?? baseUrl
+
         return (0..<chapter.pages).compactMap { page in
-            let url = "\(baseUrl)/api/Reader/image?chapterId=\(chapter.id)&page=\(page)&apiKey=\(apiKey)&extractPdf=true"
-            return URL(string: url).flatMap {
+            let path = "api/Reader/image?chapterId=\(chapter.id)&page=\(page)&apiKey=\(apiKey)&extractPdf=true"
+            return URL(string: path, relativeTo: baseUrl).flatMap {
                 .init(content: .url(url: $0))
             }
         }
     }
 
     func getMangaList(listing: AidokuRunner.Listing, page: Int) async throws -> AidokuRunner.MangaPageResult {
-        let baseUrl = try helper.getConfiguredServer()
+        var baseUrl = try helper.getConfiguredServer()
         let apiKey = helper.getApiKey()
+        var lastWorkingMirrorCopy = lastWorkingMirror
+        defer {
+            lastWorkingMirror = lastWorkingMirrorCopy
+        }
 
         switch listing.id {
             case "on_deck":
-                let series = try await helper.getOnDeck(pageNum: page)
+                let series = try await helper.getOnDeck(pageNum: page, lastWorkingMirror: &lastWorkingMirrorCopy)
+                baseUrl = lastWorkingMirrorCopy ?? baseUrl
                 return .init(
                     entries: series.map { $0.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey) },
                     hasNextPage: series.count == 20
                 )
 
             case "recently_updated":
-                let series = try await helper.getRecentlyUpdatedSeries()
+                let series = try await helper.getRecentlyUpdatedSeries(lastWorkingMirror: &lastWorkingMirrorCopy)
+                baseUrl = lastWorkingMirrorCopy ?? baseUrl
                 return .init(
                     entries: series.map { $0.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey) },
                     hasNextPage: false
                 )
 
             case "recently_added":
-                let series = try await helper.getRecentlyAdded(pageNum: page)
+                let series = try await helper.getRecentlyAdded(pageNum: page, lastWorkingMirror: &lastWorkingMirrorCopy)
+                baseUrl = lastWorkingMirrorCopy ?? baseUrl
                 return .init(
                     entries: series.map { $0.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey) },
                     hasNextPage: series.count == 20
@@ -253,7 +270,8 @@ actor KavitaSourceRunner: Runner {
                 guard let genreId = Int(listing.id[listing.id.index(listing.id.startIndex, offsetBy: 7)...]) else {
                     throw SourceError.message("Invalid genre id")
                 }
-                let series = try await helper.getMoreIn(genreId: genreId, pageNum: page)
+                let series = try await helper.getMoreIn(genreId: genreId, pageNum: page, lastWorkingMirror: &lastWorkingMirrorCopy)
+                baseUrl = lastWorkingMirrorCopy ?? baseUrl
                 return .init(
                     entries: series.map { $0.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey) },
                     hasNextPage: series.count == 20
@@ -261,8 +279,14 @@ actor KavitaSourceRunner: Runner {
 
             case _ where listing.id.hasPrefix("filter-"):
                 let encodedFilter = String(listing.id[listing.id.index(listing.id.startIndex, offsetBy: 7)...])
-                let filter = try await helper.decodeFilter(encodedFilter)
-                let series = try await helper.getAllSeriesV2(pageNum: page, filter: filter, context: .dashboard)
+                let filter = try await helper.decodeFilter(encodedFilter, lastWorkingMirror: &lastWorkingMirrorCopy)
+                let series = try await helper.getAllSeriesV2(
+                    pageNum: page,
+                    filter: filter,
+                    context: .dashboard,
+                    lastWorkingMirror: &lastWorkingMirrorCopy
+                )
+                baseUrl = lastWorkingMirrorCopy ?? baseUrl
                 return .init(
                     entries: series.map { $0.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey) },
                     hasNextPage: series.count == 20
@@ -274,11 +298,14 @@ actor KavitaSourceRunner: Runner {
                 let filter = KavitaFilterV2(
                     statements: [.init(comparison: .equal, field: .libraries, value: id)],
                 )
+                var lastWorkingMirrorCopy = lastWorkingMirror
                 let res: [KavitaSeries] = try await helper.request(
-                    path: "/api/series/v2",
+                    path: "api/series/v2",
                     method: .POST,
-                    body: JSONEncoder().encode(filter)
+                    body: JSONEncoder().encode(filter),
+                    lastWorkingMirror: &lastWorkingMirrorCopy
                 )
+                baseUrl = lastWorkingMirrorCopy ?? baseUrl
                 return .init(
                     entries: res.map { $0.intoManga(sourceKey: sourceKey, baseUrl: baseUrl, apiKey: apiKey) },
                     hasNextPage: false
@@ -310,7 +337,7 @@ actor KavitaSourceRunner: Runner {
             returning: [ResultType: [FilterItem]].self
         ) { [helper] taskGroup in
             for type in ResultType.allCases {
-                taskGroup.addTask {
+                taskGroup.addTask { [lastWorkingMirror] in
                     struct Result: Decodable {
                         let id: Int?
                         let value: Int?
@@ -325,7 +352,8 @@ actor KavitaSourceRunner: Runner {
                             .init(id: resolvedId, title: resolvedTitle)
                         }
                     }
-                    let result: [Result] = try await helper.request(path: type.path)
+                    var lastWorkingMirrorCopy = lastWorkingMirror
+                    let result: [Result] = try await helper.request(path: type.path, lastWorkingMirror: &lastWorkingMirrorCopy)
                     return (type, result.map { $0.into() })
                 }
             }
@@ -430,7 +458,9 @@ actor KavitaSourceRunner: Runner {
     }
 
     func getListings() async throws -> [AidokuRunner.Listing] {
-        let libraries: [KavitaLibrary] = try await helper.request(path: "/api/library/libraries")
+        var lastWorkingMirrorCopy = lastWorkingMirror
+        let libraries: [KavitaLibrary] = try await helper.request(path: "api/library/libraries", lastWorkingMirror: &lastWorkingMirrorCopy)
+        lastWorkingMirror = lastWorkingMirrorCopy
         return libraries.map {
             .init(id: "library-\($0.id)", name: $0.name, kind: .default)
         }
@@ -444,10 +474,76 @@ actor KavitaSourceRunner: Runner {
     }
 
     func getSettings() async throws -> [Setting] {
+        var settings: [Setting] = [
+            .init(
+                title: "SOURCE_NAME",
+                value: .group(.init(
+                    footer: "SOURCE_NAME_INFO",
+                    items: [
+                        .init(
+                            key: "name",
+                            notification: "name_change",
+                            value: .text(.init(
+                                placeholder: NSLocalizedString("KAVITA"),
+                                returnKeyType: UIReturnKeyType.done.rawValue,
+                                autocorrectionDisabled: true,
+                                defaultValue: name
+                            ))
+                        )
+                    ]
+                ))
+            ),
+            .init(
+                title: "SERVER_URL",
+                value: .group(.init(
+                    footer: "SERVER_URL_INFO",
+                    items: [
+                        .init(
+                            key: "server",
+                            notification: "server_change",
+                            refreshes: ["settings", "listings", "content"],
+                            value: .text(.init(
+                                placeholder: "https://demo.kavitareader.com",
+                                autocapitalizationType: UITextAutocapitalizationType.none.rawValue,
+                                keyboardType: UIKeyboardType.URL.rawValue,
+                                returnKeyType: UIReturnKeyType.done.rawValue,
+                                autocorrectionDisabled: true,
+                                defaultValue: server
+                            ))
+                        )
+                    ]
+                ))
+            )
+        ]
+        let currentServer = UserDefaults.standard.string(forKey: "\(sourceKey).server") ?? server
+        if !currentServer.isEmpty {
+            settings.append(
+                .init(
+                    title: "MIRRORS",
+                    value: .group(.init(
+                        footer: "MIRRORS_INFO",
+                        items: [
+                            .init(
+                                key: "mirrors",
+                                title: "MIRRORS",
+                                value: .editableList(.init(
+                                    lineLimit: 1,
+                                    inline: true,
+                                    placeholder: NSLocalizedString("SERVER_URL")
+                                ))
+                            )
+                        ]
+                    ))
+                )
+            )
+        }
+
         // check for oidc support
-        let server = try helper.getConfiguredServer()
-        guard let oidcCheckUrl = URL(string: server + "/api/settings/oidc") else {
-            return []
+        guard
+            let server = currentServer.urlWithTrailingSlash(),
+            let oidcCheckUrl = URL(string: "api/settings/oidc", relativeTo: server)
+        else {
+            return settings
         }
 
         struct OIDCResponse: Decodable {
@@ -455,10 +551,13 @@ actor KavitaSourceRunner: Runner {
             let enabled: Bool
             let providerName: String
         }
-        let response: OIDCResponse? = try? await URLSession.shared.object(from: oidcCheckUrl)
-        guard let response else { return [] }
-
-        var settings: [Setting] = []
+        let session = URLSession(configuration: {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 5 // time out requests after 5s
+            return config
+        }())
+        let response: OIDCResponse? = try? await session.object(from: oidcCheckUrl)
+        guard let response else { return settings }
 
         let isBasicLoggedIn = UserDefaults.standard.string(forKey: "\(sourceKey).login") != nil
         let isOidcLoggedIn = UserDefaults.standard.string(forKey: "\(sourceKey).login_oidc") != nil
@@ -491,7 +590,7 @@ actor KavitaSourceRunner: Runner {
                             requires: "server",
                             requiresFalse: "login",
                             refreshes: ["content", "listings", "filters", "settings"],
-                            value: .login(.init(method: .web, url: server + "/oidc/login"))
+                            value: .login(.init(method: .web, url: URL(string: "/oidc/login", relativeTo: server)?.absoluteString))
                         )
                     ]
                 ))
@@ -502,9 +601,11 @@ actor KavitaSourceRunner: Runner {
     }
 
     func getBaseUrl() async throws -> URL? {
-        URL(string: try helper.getConfiguredServer())
+        try helper.getConfiguredServer()
     }
+}
 
+extension KavitaSourceRunner {
     func handleBasicLogin(key _: String, username: String, password: String) async throws -> Bool {
         let server = try helper.getConfiguredServer()
         let response = await Self.getLoginResponse(server: server, username: username, password: password)
@@ -534,7 +635,7 @@ actor KavitaSourceRunner: Runner {
             let httpCookie = HTTPCookie(properties: [
                 .name: ".AspNetCore.Cookies",
                 .value: cookie,
-                .domain: URL(string: server)?.domain ?? "",
+                .domain: server.domain ?? "",
                 .path: "/"
             ])
         else {
@@ -575,54 +676,115 @@ actor KavitaSourceRunner: Runner {
                     UserDefaults.standard.setValue(nil, forKey: "\(sourceKey).cookie")
                 }
 
+            case "name_change":
+                let key = "\(sourceKey).name"
+                let newValue = UserDefaults.standard.string(forKey: key) ?? ""
+
+                // ensure normalized value
+                let normalizedValue = newValue.trimmingCharacters(in: .whitespaces)
+                if newValue != normalizedValue {
+                    UserDefaults.standard.set(normalizedValue, forKey: key)
+                    return // the function will be called again with the new value
+                }
+
+                if newValue != name {
+                    // update db source config with new name
+                    name = newValue
+                    updateSourceConfig(updateSourceList: true)
+                }
+
+            case "server_change":
+                let key = "\(sourceKey).server"
+                let newValue = UserDefaults.standard.string(forKey: key) ?? ""
+
+                // ensure normalized value
+                let normalizedValue = (newValue.last == "/" ? String(newValue[..<newValue.index(before: newValue.endIndex)]) : newValue)
+                    .trimmingCharacters(in: .whitespaces)
+                if newValue != normalizedValue {
+                    UserDefaults.standard.set(normalizedValue, forKey: key)
+                    return // the function will be called again with the new value
+                }
+
+                if newValue != server {
+                    // update db source config with new server url
+                    server = newValue
+                    updateSourceConfig()
+                }
+
             default:
                 break
         }
+    }
+
+    private func updateSourceConfig(updateSourceList: Bool = false) {
+        let config = CustomSourceConfig.kavita(key: sourceKey, name: name, server: server)
+        SourceManager.shared.updateCustomSource(key: sourceKey, config: config, updateSourceList: updateSourceList)
     }
 }
 
 extension KavitaSourceRunner {
     func getHome() async throws -> Home {
-        let dashComponents: [KavitaDashComponent] = try await helper.request(path: "/api/stream/dashboard?visibleOnly=true")
+        var lastWorkingMirrorCopy = lastWorkingMirror
+        let dashComponents: [KavitaDashComponent] = try await helper.request(
+            path: "api/stream/dashboard?visibleOnly=true",
+            lastWorkingMirror: &lastWorkingMirrorCopy
+        )
+        lastWorkingMirror = lastWorkingMirrorCopy
 
         let baseUrl = try helper.getConfiguredServer()
         let apiKey = helper.getApiKey()
 
         var components: [HomeComponent?] = Array(repeating: nil, count: dashComponents.count)
 
-        try await withThrowingTaskGroup(of: (Int, String, String, [KavitaSeries]).self) { [helper, sourceKey] taskGroup in
+        try await withThrowingTaskGroup(of: (Int, String, String, URL, [KavitaSeries]).self) { [helper, sourceKey] taskGroup in
             for (index, c) in dashComponents.enumerated() {
-                taskGroup.addTask {
+                taskGroup.addTask { [lastWorkingMirror] in
+                    var lastWorkingMirrorCopy = lastWorkingMirror
                     switch c.streamType {
                         case .onDeck:
-                            let series = try await helper.getOnDeck()
-                            return (index, NSLocalizedString("ON_DECK"), "on_deck", series)
+                            let series = try await helper.getOnDeck(lastWorkingMirror: &lastWorkingMirrorCopy)
+                            return (index, NSLocalizedString("ON_DECK"), "on_deck", lastWorkingMirrorCopy ?? baseUrl, series)
                         case .recentlyUpdated:
-                            let series = try await helper.getRecentlyUpdatedSeries()
-                            return (index, NSLocalizedString("RECENTLY_UPDATED_SERIES"), "recently_updated", series)
+                            let series = try await helper.getRecentlyUpdatedSeries(lastWorkingMirror: &lastWorkingMirrorCopy)
+                            return (index, NSLocalizedString("RECENTLY_UPDATED_SERIES"), "recently_updated", lastWorkingMirrorCopy ?? baseUrl, series)
                         case .newlyAdded:
-                            let series = try await helper.getRecentlyAdded()
-                            return (index, NSLocalizedString("RECENTLY_ADDED_SERIES"), "recently_added", series)
+                            let series = try await helper.getRecentlyAdded(lastWorkingMirror: &lastWorkingMirrorCopy)
+                            return (index, NSLocalizedString("RECENTLY_ADDED_SERIES"), "recently_added", lastWorkingMirrorCopy ?? baseUrl, series)
                         case .smartFilter:
                             if let encodedFilter = c.smartFilterEncoded {
-                                let filter = try await helper.decodeFilter(encodedFilter)
-                                let series = try await helper.getAllSeriesV2(filter: filter, context: .dashboard)
-                                return (index, c.name, "filter-\(encodedFilter)", series)
+                                let filter = try await helper.decodeFilter(encodedFilter, lastWorkingMirror: &lastWorkingMirrorCopy)
+                                let series = try await helper.getAllSeriesV2(
+                                    filter: filter,
+                                    context: .dashboard,
+                                    lastWorkingMirror: &lastWorkingMirrorCopy
+                                )
+                                return (index, c.name, "filter-\(encodedFilter)", lastWorkingMirrorCopy ?? baseUrl, series)
                             } else {
-                                return (index, "", "", [])
+                                return (index, "", "", baseUrl, [])
                             }
                         case .moreInGenre:
-                            let genres = try await helper.getAllGenres(context: .dashboard)
+                            let genres = try await helper.getAllGenres(context: .dashboard, lastWorkingMirror: &lastWorkingMirrorCopy)
                             guard let randomGenre = genres.randomElement() else {
-                                return (index, "", "", [])
+                                return (index, "", "", baseUrl, [])
                             }
-                            let series = try await helper.getMoreIn(genreId: randomGenre.id, pageNum: 0, itemsPerPage: 30)
-                            return (index, String(format: NSLocalizedString("MORE_IN_%@"), randomGenre.title), "morein-\(randomGenre.id)", series)
+                            let series = try await helper.getMoreIn(
+                                genreId: randomGenre.id,
+                                pageNum: 0,
+                                itemsPerPage: 30,
+                                lastWorkingMirror: &lastWorkingMirrorCopy
+                            )
+                            return (
+                                index,
+                                String(format: NSLocalizedString("MORE_IN_%@"), randomGenre.title),
+                                "morein-\(randomGenre.id)",
+                                lastWorkingMirrorCopy ?? baseUrl,
+                                series
+                            )
                     }
                 }
             }
 
-            for try await (index, title, listingId, series) in taskGroup where !series.isEmpty {
+            for try await (index, title, listingId, baseUrl, series) in taskGroup where !series.isEmpty {
                 components[index] = .init(
                     title: title,
                     value: .scroller(
@@ -658,8 +820,8 @@ extension KavitaSourceRunner {
         }
     }
 
-    static func getLoginResponse(server: String, username: String, password: String) async -> LoginResponse? {
-        guard let loginUrl = URL(string: server + "/api/account/login") else {
+    static func getLoginResponse(server: URL, username: String, password: String) async -> LoginResponse? {
+        guard let loginUrl = URL(string: "api/account/login", relativeTo: server) else {
             return nil
         }
 
@@ -680,10 +842,10 @@ extension KavitaSourceRunner {
         return try? await URLSession.shared.object(from: request)
     }
 
-    static func getLoginResponse(server: String, cookies: [HTTPCookie]) async -> LoginResponse? {
+    static func getLoginResponse(server: URL, cookies: [HTTPCookie]) async -> LoginResponse? {
         guard
             let cookie = cookies.first(where: { $0.name == ".AspNetCore.Cookies" }),
-            let accountUrl = URL(string: server + "/api/account")
+            let accountUrl = URL(string: "api/account", relativeTo: server)
         else {
             return nil
         }

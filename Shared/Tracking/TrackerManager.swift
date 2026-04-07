@@ -22,13 +22,15 @@ actor TrackerManager {
     static let anilist = AniListTracker()
     /// An instance of the MyAnimeList tracker.
     static let myanimelist = MyAnimeListTracker()
+    /// An instance of the MangaBaka tracker.
+    static let mangabaka = MangaBakaTracker()
     /// An instance of the Shikimori tracker.
     static let shikimori = ShikimoriTracker()
     /// An instance of the Bangumi tracker.
     static let bangumi = BangumiTracker()
 
     /// An array of the available trackers.
-    static let trackers: [Tracker] = [komga, kavita, anilist, myanimelist, shikimori, bangumi]
+    static let trackers: [Tracker] = [komga, kavita, anilist, myanimelist, mangabaka, shikimori, bangumi]
 
     /// A boolean indicating if there is a tracker that is currently logged in.
     static var hasAvailableTrackers: Bool {
@@ -223,21 +225,20 @@ actor TrackerManager {
                 highestChapterRead: highestReadNumber,
                 earliestReadDate: earliestReadDate
             )
-            await TrackerManager.shared.saveTrackItem(item: TrackItem(
+            let trackItem = TrackItem(
                 id: id ?? item.id,
                 trackerId: tracker.id,
                 sourceId: manga.sourceKey,
                 mangaId: manga.key,
                 title: item.title ?? manga.title
-            ))
+            )
+            await TrackerManager.shared.saveTrackItem(item: trackItem)
 
             // Sync progress from tracker if enabled or is enhanced tracker
             if UserDefaults.standard.bool(forKey: "Tracking.autoSyncFromTracker") || (tracker is EnhancedTracker) || (tracker is PageTracker) {
-                if tracker is PageTracker {
-                    await syncPageTrackerHistory(manga: manga)
-                } else {
-                    await syncProgressFromTracker(tracker: tracker, trackId: id ?? item.id, manga: manga)
-                }
+                await syncProgressFromTracker(tracker: tracker, trackId: id ?? item.id, manga: manga)
+            } else {
+                NotificationCenter.default.post(name: .syncTrackItem, object: trackItem)
             }
         } catch {
             LogManager.logger.error("Failed to register tracker \(tracker.id): \(error)")
@@ -296,8 +297,8 @@ actor TrackerManager {
     /// Checks if there is a tracker that can be added to the given manga.
     func hasAvailableTrackers(sourceKey: String, mangaKey: String) async -> Bool {
         for tracker in Self.trackers {
-            let canRegister = try? await tracker.canRegister(sourceKey: sourceKey, mangaKey: mangaKey)
-            if canRegister == true {
+            let canRegister = tracker.canRegister(sourceKey: sourceKey, mangaKey: mangaKey)
+            if canRegister {
                 return true
             }
         }
@@ -488,7 +489,7 @@ actor TrackerManager {
     /// Add all applicable enhanced trackers to a given manga.
     func bindEnhancedTrackers(manga: AidokuRunner.Manga) async {
         for tracker in Self.trackers where tracker is EnhancedTracker {
-            if (try? await tracker.canRegister(sourceKey: manga.sourceKey, mangaKey: manga.key)) == true {
+            if tracker.canRegister(sourceKey: manga.sourceKey, mangaKey: manga.key) {
                 do {
                     let items = try await tracker.search(for: manga, includeNsfw: true)
                     guard let item = items.first else {

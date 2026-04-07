@@ -13,9 +13,10 @@ struct TrackerListView: View {
 
     @State private var refresh = false
     @State private var availableTrackers: [Tracker] = []
+    @State private var trackItems: [TrackItem] = []
     @State private var trackerInfo: [String: TrackerInfo] = [:]
 
-    let refreshPublisher = NotificationCenter.default.publisher(for: .updateTrackers)
+    private let refreshPublisher = NotificationCenter.default.publisher(for: .updateTrackers)
 
     var body: some View {
         VStack {
@@ -27,11 +28,7 @@ struct TrackerListView: View {
             } else {
                 ForEach(availableTrackers, id: \.id) { tracker in
                     if
-                        let item = CoreDataManager.shared.getTrack(
-                            trackerId: tracker.id,
-                            sourceId: manga.sourceKey,
-                            mangaId: manga.key
-                        )?.toItem(),
+                        let item = trackItems.first(where: { $0.trackerId == tracker.id }),
                         let info = trackerInfo[tracker.id]
                     {
                         TrackerView(tracker: tracker, item: item, info: info, refresh: $refresh)
@@ -41,29 +38,45 @@ struct TrackerListView: View {
                             .transition(.opacity)
                     }
                 }
+
+                let unavailableItems = trackItems.filter { item in
+                    !availableTrackers.contains(where: { $0.id == item.trackerId })
+                }
+                ForEach(unavailableItems, id: \.trackerId) { item in
+                    if let tracker = TrackerManager.getTracker(id: item.trackerId) {
+                        TrackerUnavailableItemView(tracker: tracker, item: item)
+                            .transition(.opacity)
+                    }
+                }
             }
         }
         .padding([.bottom])
         .onChange(of: refresh) { _ in } // in order to trigger a refresh
         .onReceive(refreshPublisher) { _ in
             withAnimation {
+                loadTrackItems()
                 refresh.toggle()
             }
         }
         .task {
             var trackers: [Tracker] = []
             for tracker in TrackerManager.trackers {
-                let canRegister = try? await tracker.canRegister(sourceKey: manga.sourceKey, mangaKey: manga.key)
-                if canRegister == true {
+                let canRegister = tracker.canRegister(sourceKey: manga.sourceKey, mangaKey: manga.key)
+                if canRegister {
                     let info = try? await tracker.getTrackerInfo()
                     guard let info else { continue }
                     trackers.append(tracker)
                     trackerInfo[tracker.id] = info
                 }
             }
+            loadTrackItems()
             withAnimation {
                 availableTrackers = trackers
             }
         }
+    }
+
+    func loadTrackItems() {
+        trackItems = CoreDataManager.shared.getTracks(sourceId: manga.sourceKey, mangaId: manga.key).map { $0.toItem() }
     }
 }

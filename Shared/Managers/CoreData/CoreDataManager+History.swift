@@ -276,6 +276,7 @@ extension CoreDataManager {
         mangaId: String,
         chapterId: String,
         totalPages: Int? = nil,
+        scrollPosition: Double? = nil,
         dateRead: Date? = nil,
         completed: Bool? = nil,
         context: NSManagedObjectContext? = nil
@@ -290,6 +291,9 @@ extension CoreDataManager {
         historyObject.dateRead = dateRead ?? Date()
         if let totalPages {
             historyObject.total = Int16(totalPages)
+        }
+        if let scrollPosition {
+            historyObject.scrollPosition = NSNumber(value: scrollPosition)
         }
         if let completed {
             historyObject.completed = completed
@@ -373,7 +377,7 @@ extension CoreDataManager {
 
         let uniqueKey = "\(sourceId).\(mangaId)"
         let key = "Manga.chapterDisplayMode.\(uniqueKey)"
-        let displayMode: ChapterTitleDisplayMode = if sourceId.hasPrefix("komga") {
+        let displayMode: ChapterTitleDisplayMode = if sourceId.hasPrefix(KomgaSourceRunner.sourceKeyPrefix) {
             UserDefaults.standard.bool(forKey: "\(sourceId).useChapters") ? .chapter : .volume
         } else {
             .init(rawValue: UserDefaults.standard.integer(forKey: key)) ?? .default

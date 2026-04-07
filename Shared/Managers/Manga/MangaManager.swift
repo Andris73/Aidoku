@@ -26,6 +26,48 @@ actor MangaManager {
     private var targetCategory: String?
 
     private static let maxConcurrentLibraryUpdateTasks = 10
+
+    nonisolated func getNextChapter(
+        manga: AidokuRunner.Manga,
+        chapters: [AidokuRunner.Chapter],
+        readingHistory: [String: (page: Int, date: Int)],
+        sortAscending: Bool
+    ) -> AidokuRunner.Chapter? {
+        // 1. Resume Reading: Find the most recently read chapter that isn't completed
+        var lastReadChapter: AidokuRunner.Chapter?
+        var lastReadDate: Int = -1
+
+        for chapter in chapters {
+            if let history = readingHistory[chapter.id], history.page != -1 {
+                // Ensure chapter is accessible
+                let identifier = ChapterIdentifier(sourceKey: manga.sourceKey, mangaKey: manga.key, chapterKey: chapter.key)
+                let isDownloaded = DownloadManager.shared.getDownloadStatus(for: identifier) == .finished
+                if !chapter.locked || isDownloaded {
+                    if history.date > lastReadDate {
+                        lastReadDate = history.date
+                        lastReadChapter = chapter
+                    }
+                }
+            }
+        }
+
+        if let lastReadChapter {
+            return lastReadChapter
+        }
+
+        // 2. Fallback: Find first uncompleted chapter in sort order (Start Reading)
+        let sorted = sortAscending ? chapters : chapters.reversed()
+
+        return sorted.first(where: { chapter in
+            let identifier = ChapterIdentifier(sourceKey: manga.sourceKey, mangaKey: manga.key, chapterKey: chapter.key)
+            let isDownloaded = DownloadManager.shared.getDownloadStatus(for: identifier) == .finished
+            let isUnlocked = !chapter.locked || isDownloaded
+            let history = readingHistory[chapter.id]
+            let isCompleted = history?.page ?? 0 == -1
+
+            return isUnlocked && !isCompleted
+        })
+    }
 }
 
 // MARK: - Library Managing
@@ -413,7 +455,7 @@ extension MangaManager {
     ) async {
         // make sure user agent and sources have loaded before doing library refresh
         _ = await UserAgentProvider.shared.getUserAgent()
-        await SourceManager.shared.loadSources()
+        await SourceManager.shared.waitForSourcesLoad()
 
         // process failed tracker updates first
         await TrackerManager.shared.processPendingUpdates()
@@ -434,7 +476,8 @@ extension MangaManager {
         }
 
         let skipOptions = forceAll ? [] : UserDefaults.standard.stringArray(forKey: "Library.skipTitles") ?? []
-        let excludedCategories = forceAll ? [] : UserDefaults.standard.stringArray(forKey: "Library.excludedUpdateCategories") ?? []
+        let excludedCategories = forceAll ? [] : (UserDefaults.standard.stringArray(forKey: "Library.excludedUpdateCategories") ?? [])
+            .filter { $0 != category }
         let updateMetadata = forceAll || UserDefaults.standard.bool(forKey: "Library.refreshMetadata")
 
         await refreshStarted?()
@@ -495,17 +538,13 @@ extension MangaManager {
                     // update chapters
                     guard let chapters = newManga.chapters, !chapters.isEmpty else { return }
 
-                    let oldLockedCount = (mangaObject.chapters?.allObjects as? [ChapterObject])?.filter { $0.locked }.count ?? 0
-                    let newLockedCount = chapters.filter { $0.locked }.count
-
-                    let shouldUpdateChapters = mangaObject.chapters?.count != chapters.count || oldLockedCount != newLockedCount
-                    if shouldUpdateChapters {
-                        let newChapters = CoreDataManager.shared.setChapters(
-                            chapters,
-                            sourceId: manga.sourceId,
-                            mangaId: manga.id,
-                            context: context
-                        )
+                    let newChapters = CoreDataManager.shared.setChapters(
+                        chapters,
+                        sourceId: manga.sourceId,
+                        mangaId: manga.id,
+                        context: context
+                    )
+                    if !newChapters.isEmpty {
                         // add manga updates
                         let scanlatorFilter = mangaObject.scanlatorFilter ?? []
                         for chapter in newChapters
@@ -524,8 +563,11 @@ extension MangaManager {
                         libraryObject.lastUpdatedChapters = Date.now
                     }
 
-                    if updateMetadata || shouldUpdateChapters {
+                    if updateMetadata || !newChapters.isEmpty {
                         libraryObject.lastUpdated = Date.now
+                    }
+
+                    if context.hasChanges {
                         try? context.save()
                     }
                 }
