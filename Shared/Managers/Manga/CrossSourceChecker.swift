@@ -251,7 +251,7 @@ actor CrossSourceChecker {
                 bestMatch = entry
             }
             // Perfect match — stop early
-            if score >= 1.0 { break }
+            if score >= 1 { break }
         }
 
         guard bestScore >= minimumSimilarity else { return nil }
@@ -280,7 +280,7 @@ actor CrossSourceChecker {
     /// bigram similarity (Sørensen–Dice).
     private static func titleSimilarity(_ a: String, _ b: String) -> Double {
         // 1. Exact match
-        if a == b { return 1.0 }
+        if a == b { return 1 }
 
         // 2. Containment — one title is a substring of the other.
         //    Only accept if the shorter string is at least 70 % of the longer.
@@ -332,7 +332,7 @@ actor CrossSourceChecker {
                 bagB[bg] = remaining - 1
             }
         }
-        return (2.0 * Double(shared)) / Double(totalCount)
+        return (2 * Double(shared)) / Double(totalCount)
     }
 
     /// Extracts character bigrams from a string (ignoring spaces).
