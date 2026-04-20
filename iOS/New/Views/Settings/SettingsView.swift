@@ -166,6 +166,9 @@ extension SettingsView {
                         completed += 1
                         tabController?.setCrossSourceCheckProgress(Float(completed) / Float(total))
                     }
+                    // Reset the schedule timestamp so the next automatic check
+                    // doesn't fire immediately after a manual run.
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "Library.crossSourceLastChecked")
                     NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
                     tabController?.hideAccessoryView()
                 }

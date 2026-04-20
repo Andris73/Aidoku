@@ -411,7 +411,9 @@ extension LibraryViewModel {
             await search(query: searchQuery)
         }
 
-        fetchCrossSourceStatus()
+        if isCrossSourceCheckDue() {
+            fetchCrossSourceStatus()
+        }
     }
 
     // updates unread counts and manga sort order for history change
@@ -590,12 +592,32 @@ extension LibraryViewModel {
     }
 
     /// Kick off a background cross-source check for all library manga.
+    /// Returns true when enough time has elapsed since the last automatic cross-source
+    /// check, based on the user's chosen interval setting.
+    private func isCrossSourceCheckDue() -> Bool {
+        guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return false }
+
+        let interval: TimeInterval = switch UserDefaults.standard.string(forKey: "Library.crossSourceCheckInterval") {
+            case "daily":   86_400
+            case "weekly":  604_800
+            case "2weeks":  1_209_600
+            case "monthly": 2_592_000
+            default:        0          // "never"
+        }
+        guard interval > 0 else { return false }
+
+        let lastChecked = UserDefaults.standard.double(forKey: "Library.crossSourceLastChecked")
+        return Date().timeIntervalSince1970 - lastChecked >= interval
+    }
+
     /// Results are delivered incrementally via an `AsyncStream` and
     /// applied to the manga/pinnedManga arrays as they arrive.
     func fetchCrossSourceStatus() {
         crossSourceCheckTask?.cancel()
 
-        guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return }
+        guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck"),
+              UserDefaults.standard.string(forKey: "Library.crossSourceCheckInterval") != "never"
+        else { return }
 
         let allManga = self.manga + self.pinnedManga
         guard !allManga.isEmpty else { return }
@@ -607,6 +629,9 @@ extension LibraryViewModel {
             tabController?.showCrossSourceCheckView()
 
             defer {
+                // Record when this automatic check finished so the schedule can
+                // determine when the next one is due.
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "Library.crossSourceLastChecked")
                 tabController?.hideAccessoryView()
                 NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
             }

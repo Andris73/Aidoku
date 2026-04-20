@@ -258,6 +258,21 @@ extension Settings {
                         value: .toggle(.init())
                     ),
                     .init(
+                        key: "Library.crossSourceCheckInterval",
+                        title: NSLocalizedString("CHECK_FREQUENCY"),
+                        requires: "Library.crossSourceCheck",
+                        value: .select(.init(
+                            values: ["never", "daily", "weekly", "2weeks", "monthly"],
+                            titles: [
+                                NSLocalizedString("NEVER"),
+                                NSLocalizedString("DAILY"),
+                                NSLocalizedString("WEEKLY"),
+                                NSLocalizedString("EVERY_2_WEEKS"),
+                                NSLocalizedString("MONTHLY")
+                            ]
+                        ))
+                    ),
+                    .init(
                         key: "Library.crossSourceExcludedSources",
                         title: NSLocalizedString("EXCLUDED_SOURCES"),
                         requires: "Library.crossSourceCheck",
