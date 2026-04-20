@@ -27,6 +27,8 @@ jobs:
 
       - name: Update LiveContainer source
         id: update_source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python .github/workflows/supporting/update_livecontainer_json.py
 

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import plistlib
 import re
 import zipfile
@@ -10,14 +11,18 @@ import requests
 bundle_id = "app.aidoku.Aidoku"
 minimum_ios_version = "15.0"
 json_file_name = ".github/workflows/supporting/livecontainer/apps.json"
-github_repo = "Andris73/Aidoku"
+github_repo = os.environ.get("GITHUB_REPOSITORY", "Aidoku/Aidoku")
+github_token = os.environ.get("GITHUB_TOKEN", "")
 
 
 def fetch_latest_release(repo):
     api_url = f"https://api.github.com/repos/{repo}/releases"
     headers = {
         "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
     try:
         response = requests.get(api_url, headers=headers)
         response.raise_for_status()
