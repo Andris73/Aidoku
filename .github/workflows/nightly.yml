@@ -2,6 +2,9 @@ name: Build and upload nightly ipa
 
 on: [push, workflow_dispatch]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -15,9 +18,11 @@ jobs:
         run: |
           xcrun simctl list > /dev/null # fixes next command sometimes failing
           xcodebuild -downloadPlatform iOS
-      - name: Get commit SHA
+      - name: Get commit info
         id: commitinfo
-        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
       - name: Build
         run: xcodebuild -scheme "Aidoku (iOS)" -configuration Release archive -archivePath build/Aidoku.xcarchive -skipPackagePluginValidation CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
       - name: Package ipa
@@ -31,3 +36,20 @@ jobs:
           name: Aidoku-iOS_nightly-${{ steps.commitinfo.outputs.sha_short }}.ipa
           path: Aidoku-iOS_nightly-${{ steps.commitinfo.outputs.sha_short }}.ipa
           if-no-files-found: error
+      - name: Create or update nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build (${{ steps.commitinfo.outputs.date }})
+          body: |
+            Automated nightly build from commit ${{ steps.commitinfo.outputs.sha_short }} on ${{ steps.commitinfo.outputs.date }}.
+
+            **Commit:** [`${{ steps.commitinfo.outputs.sha_short }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+            **Branch:** `${{ github.ref_name }}`
+          prerelease: true
+          files: Aidoku-iOS_nightly-${{ steps.commitinfo.outputs.sha_short }}.ipa
+          make_latest: false
+
+  update-source:
+    needs: build
+    uses: ./.github/workflows/update_livecontainer_source.yml

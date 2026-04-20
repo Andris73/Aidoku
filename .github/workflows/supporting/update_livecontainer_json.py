@@ -34,9 +34,7 @@ def fetch_latest_release(repo):
         )
         filtered_sorted_releases = list(
             filter(
-                lambda release: (
-                    release["draft"] == False and release["prerelease"] == False
-                ),
+                lambda release: release["draft"] == False,
                 sorted_releases,
             )
         )
@@ -127,35 +125,33 @@ def update_json_file(json_file, repo):
     data["featuredApps"] = [bundle_id]
     app["bundleIdentifier"] = bundle_id
 
-    tag = latest_release["tag_name"]
-    full_version = tag.lstrip("v")
-    version_match = re.search(r"(\d+\.\d+(\.\d+)?)", full_version)
-    if not version_match:
-        raise ValueError(f"Could not parse version from tag: {tag}")
-    version = version_match.group(1)
+    download_url = asset_to_use["browser_download_url"]
+    size = asset_to_use["size"]
 
-    version_entry_exists = any(item["version"] == version for item in app["versions"])
+    # Download IPA and read version/build from Info.plist
+    # This is the authoritative source for version, since nightly tags
+    # (e.g. "nightly") don't contain a version number.
+    ipa_response = requests.get(download_url)
+    ipa_response.raise_for_status()
+    with open("temp.ipa", "wb") as ipa_file:
+        ipa_file.write(ipa_response.content)
+    version, build = get_ipa_version_and_build("temp.ipa")
+
+    version_entry_exists = any(
+        item["version"] == version and item.get("buildVersion") == build
+        for item in app["versions"]
+    )
     if not version_entry_exists:
         version_date = latest_release["published_at"]
         date_obj = datetime.strptime(version_date, "%Y-%m-%dT%H:%M:%SZ")
         version_date_short = date_obj.strftime("%Y-%m-%d")
 
-        description = latest_release["body"]
+        description = latest_release["body"] or ""
         keyphrase = "Aidoku Release Information"
         if keyphrase in description:
             description = description.split(keyphrase, 1)[1].strip()
 
         description = prepare_description(description)
-
-        download_url = asset_to_use["browser_download_url"]
-        size = asset_to_use["size"]
-
-        # Download IPA and read version/build number from it
-        ipa_response = requests.get(download_url)
-        ipa_response.raise_for_status()
-        with open("temp.ipa", "wb") as ipa_file:
-            ipa_file.write(ipa_response.content)
-        version, build = get_ipa_version_and_build("temp.ipa")
 
         version_entry = {
             "version": version,
