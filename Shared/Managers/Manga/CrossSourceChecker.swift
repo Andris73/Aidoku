@@ -390,7 +390,7 @@ actor CrossSourceChecker {
 
     private func installedSourcesExcludingLocal(excluded: Set<String>? = nil) async -> [AidokuRunner.Source] {
         let excluded = excluded ?? excludedSourceIds()
-        await SourceManager.shared.loadSources()
+        await SourceManager.shared.reloadSources()
         return SourceManager.shared.sources.filter {
             $0.id != LocalSourceRunner.sourceKey && !excluded.contains($0.id)
         }
