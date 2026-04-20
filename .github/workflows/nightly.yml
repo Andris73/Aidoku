@@ -35,6 +35,11 @@ jobs:
         run: |
           echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+          echo "build_number=$(date +'%Y%m%d%H%M')" >> "$GITHUB_OUTPUT"
+      - name: Bump version
+        run: |
+          # Set build number to date-based value (YYYYMMDDHHmm) so every build is unique
+          agvtool new-version -all ${{ steps.commitinfo.outputs.build_number }}
       - name: Build
         run: xcodebuild -scheme "Aidoku (iOS)" -configuration Release archive -archivePath build/Aidoku.xcarchive -skipPackagePluginValidation CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
       - name: Package ipa
