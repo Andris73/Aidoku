@@ -10,7 +10,7 @@ import requests
 bundle_id = "app.aidoku.Aidoku"
 minimum_ios_version = "15.0"
 json_file_name = ".github/workflows/supporting/livecontainer/apps.json"
-github_repo = "Aidoku/Aidoku"
+github_repo = "Andris73/Aidoku"
 
 
 def fetch_latest_release(repo):
