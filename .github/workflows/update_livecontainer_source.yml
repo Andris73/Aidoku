@@ -1,9 +1,9 @@
-name: Update AltStore Source
+name: Update LiveContainer Source
 
 on:
   release:
     types: [published]
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
   update-source:
@@ -17,24 +17,24 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Update AltStore source
+      - name: Update LiveContainer source
         id: update_source
         run: |
-          python .github/workflows/supporting/update_altstore_json.py
+          python .github/workflows/supporting/update_livecontainer_json.py
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4.7.2
         with:
-          branch: altstore
-          folder: .github/workflows/supporting/altstore
+          branch: livecontainer
+          folder: .github/workflows/supporting/livecontainer
           git-config-name: GitHub Actions
           git-config-email: github-actions[bot]@users.noreply.github.com
-          commit-message: Update AltStore Source
+          commit-message: Update LiveContainer Source
           single-commit: true
