@@ -70,3 +70,7 @@ jobs:
   update-source:
     needs: build
     uses: ./.github/workflows/update_livecontainer_source.yml
+    permissions:
+      contents: write
+    with:
+      release_tag: nightly

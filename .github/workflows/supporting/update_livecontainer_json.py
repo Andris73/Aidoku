@@ -13,43 +13,50 @@ minimum_ios_version = "15.0"
 json_file_name = ".github/workflows/supporting/livecontainer/apps.json"
 github_repo = os.environ.get("GITHUB_REPOSITORY", "Aidoku/Aidoku")
 github_token = os.environ.get("GITHUB_TOKEN", "")
+release_tag = os.environ.get("RELEASE_TAG", "").strip()
 
 
-def fetch_latest_release(repo):
-    api_url = f"https://api.github.com/repos/{repo}/releases"
+def _auth_headers():
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
     if github_token:
         headers["Authorization"] = f"Bearer {github_token}"
-    try:
-        response = requests.get(api_url, headers=headers)
-        response.raise_for_status()
-        releases = response.json()
-        if len(releases) == 0:
-            raise ValueError("No release found.")
+    return headers
 
-        sorted_releases = sorted(
-            releases,
-            key=lambda release: datetime.strptime(
-                release["published_at"], "%Y-%m-%dT%H:%M:%SZ"
-            ),
-            reverse=True,
-        )
-        filtered_sorted_releases = list(
-            filter(
-                lambda release: release["draft"] == False,
-                sorted_releases,
-            )
-        )
-        if len(filtered_sorted_releases) == 0:
-            raise ValueError("An error occurred while sorting and filtering releases.")
 
-        return filtered_sorted_releases[0]
-    except requests.RequestException as e:
-        print(f"Error fetching releases: {e}")
-        raise
+def fetch_release_by_tag(repo, tag):
+    """Fetch a specific release by its tag name."""
+    api_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+    response = requests.get(api_url, headers=_auth_headers())
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_latest_release(repo):
+    """Fetch the most recently *updated* non-draft release.
+
+    Using ``updated_at`` instead of ``published_at`` matters for nightly
+    builds: ``softprops/action-gh-release`` updates an existing release
+    (keeping its ``published_at``) but bumps ``updated_at`` every time a
+    new IPA is uploaded.
+    """
+    api_url = f"https://api.github.com/repos/{repo}/releases"
+    response = requests.get(api_url, headers=_auth_headers())
+    response.raise_for_status()
+    releases = [r for r in response.json() if not r.get("draft", False)]
+    if not releases:
+        raise ValueError("No non-draft releases found.")
+
+    def _sort_key(release):
+        return datetime.strptime(
+            release.get("updated_at") or release["published_at"],
+            "%Y-%m-%dT%H:%M:%SZ",
+        )
+
+    releases.sort(key=_sort_key, reverse=True)
+    return releases[0]
 
 
 def prepare_description(text):
@@ -86,8 +93,32 @@ def get_ipa_version_and_build(ipa_path):
         return version, build
 
 
+def pick_ipa_asset(assets):
+    """Pick the most recently-created .ipa asset.
+
+    A release can accumulate multiple .ipa assets over time (nightly
+    builds keep the same tag and each new build uploads a new file). We
+    want the newest one, so sort by ``created_at`` descending.
+    """
+    ipa_assets = [a for a in assets if a["name"].lower().endswith(".ipa")]
+    if not ipa_assets:
+        return None
+
+    def _created_at(asset):
+        return datetime.strptime(asset["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+
+    ipa_assets.sort(key=_created_at, reverse=True)
+    return ipa_assets[0]
+
+
 def update_json_file(json_file, repo):
-    latest_release = fetch_latest_release(repo)
+    if release_tag:
+        print(f"Fetching release by tag: {release_tag}")
+        latest_release = fetch_release_by_tag(repo, release_tag)
+    else:
+        print("No RELEASE_TAG provided; falling back to most recently updated release")
+        latest_release = fetch_latest_release(repo)
+
     try:
         with open(json_file, "r") as file:
             data = json.load(file)
@@ -108,24 +139,21 @@ def update_json_file(json_file, repo):
     if "versions" not in app:
         app["versions"] = []
 
-    if "assets" not in latest_release:
-        print('There is no "assets" key in latest release JSON.')
-        raise ValueError("No assets in release")
-
-    assets = latest_release["assets"]
+    assets = latest_release.get("assets") or []
     if len(assets) == 0:
-        print("There are no assets in latest release JSON.")
+        print("There are no assets in the selected release.")
         raise ValueError("Empty assets")
 
-    asset_to_use = None
-    for asset in assets:
-        if asset["name"].endswith(".ipa"):
-            asset_to_use = asset
-            break
-
+    asset_to_use = pick_ipa_asset(assets)
     if asset_to_use is None:
         print(".ipa file is not found in assets")
         raise ValueError("No IPA found")
+
+    print(
+        f"Using asset '{asset_to_use['name']}' "
+        f"(created {asset_to_use.get('created_at')}) "
+        f"from release '{latest_release.get('tag_name')}'"
+    )
 
     data["featuredApps"] = [bundle_id]
     app["bundleIdentifier"] = bundle_id
@@ -133,9 +161,9 @@ def update_json_file(json_file, repo):
     download_url = asset_to_use["browser_download_url"]
     size = asset_to_use["size"]
 
-    # Download IPA and read version/build from Info.plist
-    # This is the authoritative source for version, since nightly tags
-    # (e.g. "nightly") don't contain a version number.
+    # Download IPA and read version/build from Info.plist. This is the
+    # authoritative source for version+build, since nightly tags (e.g.
+    # "nightly") don't contain a version number.
     ipa_response = requests.get(download_url)
     ipa_response.raise_for_status()
     with open("temp.ipa", "wb") as ipa_file:
@@ -146,16 +174,26 @@ def update_json_file(json_file, repo):
         item["version"] == version and item.get("buildVersion") == build
         for item in app["versions"]
     )
+    # Nightly builds often share the same marketing version across
+    # different commits; the build number is what distinguishes them.
+    # Key history entries by build so consecutive nightlies don't
+    # silently collapse into a single entry.
     if not version_entry_exists:
-        version_date = latest_release["published_at"]
-        date_obj = datetime.strptime(version_date, "%Y-%m-%dT%H:%M:%SZ")
+        # Prefer the asset's own upload time for the date (matches when
+        # the IPA was actually produced, not when the release was first
+        # created).
+        version_date_iso = (
+            asset_to_use.get("created_at")
+            or latest_release.get("updated_at")
+            or latest_release["published_at"]
+        )
+        date_obj = datetime.strptime(version_date_iso, "%Y-%m-%dT%H:%M:%SZ")
         version_date_short = date_obj.strftime("%Y-%m-%d")
 
-        description = latest_release["body"] or ""
+        description = latest_release.get("body") or ""
         keyphrase = "Aidoku Release Information"
         if keyphrase in description:
             description = description.split(keyphrase, 1)[1].strip()
-
         description = prepare_description(description)
 
         version_entry = {
@@ -169,9 +207,15 @@ def update_json_file(json_file, repo):
         }
         app["versions"].insert(0, version_entry)
 
-        # Update top-level app fields for LiveContainer compatibility
+        # Keep the versions list bounded so the source doesn't grow
+        # without limit for nightly channels.
+        max_versions = 25
+        if len(app["versions"]) > max_versions:
+            app["versions"] = app["versions"][:max_versions]
+
+        # Update top-level app fields for LiveContainer compatibility.
         app["version"] = version
-        app["versionDate"] = latest_release["published_at"]
+        app["versionDate"] = version_date_iso
         app["versionDescription"] = description
         app["downloadURL"] = download_url
         app["size"] = size
@@ -179,12 +223,18 @@ def update_json_file(json_file, repo):
         try:
             with open(json_file, "w") as file:
                 json.dump(data, file, indent=2)
-            print("JSON file updated successfully.")
+            print(
+                f"JSON file updated: version={version} build={build} "
+                f"url={download_url}"
+            )
         except IOError as e:
             print(f"Error writing to JSON file: {e}")
             raise
     else:
-        print("No need to update JSON")
+        print(
+            f"Version {version} build {build} already present in apps.json; "
+            "no changes needed."
+        )
 
 
 def main():

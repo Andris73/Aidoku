@@ -3,8 +3,27 @@ name: Update LiveContainer Source
 on:
   release:
     types: [published]
-  workflow_call: # Allow chaining from other workflows
-  workflow_dispatch: # Allow manual trigger
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Release tag to publish to the LiveContainer source"
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish (leave blank to use the most recently-updated release)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-livecontainer-source
+  cancel-in-progress: false
 
 jobs:
   update-source:
@@ -15,8 +34,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch current live apps.json from livecontainer branch
+        # The livecontainer branch is the source of truth for the published
+        # source. Pull the live copy into the working tree so the update
+        # script preserves previous version history instead of always
+        # starting from the empty template in this branch.
+        run: |
+          set -e
+          mkdir -p .github/workflows/supporting/livecontainer
+          if git ls-remote --exit-code --heads origin livecontainer >/dev/null 2>&1; then
+            echo "Fetching live apps.json from livecontainer branch"
+            git fetch origin livecontainer --depth=1
+            git show origin/livecontainer:apps.json > .github/workflows/supporting/livecontainer/apps.json
+          else
+            echo "livecontainer branch does not yet exist; using template apps.json"
+          fi
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
@@ -29,6 +64,7 @@ jobs:
         id: update_source
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || '' }}
         run: |
           python .github/workflows/supporting/update_livecontainer_json.py
 
