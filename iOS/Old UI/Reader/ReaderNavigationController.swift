@@ -84,6 +84,10 @@ private struct _SwiftUIReaderNavigationController: UIViewControllerRepresentable
     final class Coordinator {
         var nav: ReaderNavigationController?
         var reader: ReaderViewController?
+        /// Tracks the `chapter` *parameter* last used to initialise/update the reader,
+        /// so that we never mistake an internal infinite-scroll chapter change for a
+        /// deliberate navigation request from the SwiftUI side.
+        var parameterChapter: AidokuRunner.Chapter?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -99,13 +103,14 @@ private struct _SwiftUIReaderNavigationController: UIViewControllerRepresentable
         let nav = ReaderNavigationController(readerViewController: reader)
         context.coordinator.reader = reader
         context.coordinator.nav = nav
+        context.coordinator.parameterChapter = chapter
         return nav
     }
 
     func updateUIViewController(_ uiViewController: ReaderNavigationController, context: Context) {
         guard let reader = context.coordinator.reader else { return }
 
-        // make a fresh reader instance if needed
+        // Make a fresh reader instance if the manga itself changed.
         if reader.manga.key != manga.key || reader.manga.sourceKey != manga.sourceKey {
             let newReader = ReaderViewController(
                 source: source,
@@ -113,10 +118,17 @@ private struct _SwiftUIReaderNavigationController: UIViewControllerRepresentable
                 chapter: chapter
             )
             context.coordinator.reader = newReader
+            context.coordinator.parameterChapter = chapter
             uiViewController.setViewControllers([newReader], animated: false)
         } else {
-            // Otherwise, update the existing reader instance
-            if reader.chapter != chapter {
+            // Only reset the reader when the *SwiftUI chapter parameter* has actually
+            // changed – not when the reader's internal chapter was updated by
+            // infinite scroll.  Comparing reader.chapter directly caused a "ping-back"
+            // to the originally-opened chapter whenever any parent SwiftUI state
+            // changed (e.g. cross-source check completing) while the user had already
+            // scrolled to a different chapter via infinite scroll.
+            if context.coordinator.parameterChapter != chapter {
+                context.coordinator.parameterChapter = chapter
                 reader.setChapter(chapter)
                 reader.loadCurrentChapter()
             }

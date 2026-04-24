@@ -1,0 +1,79 @@
+name: Update LiveContainer Source
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Release tag to publish to the LiveContainer source"
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish (leave blank to use the most recently-updated release)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-livecontainer-source
+  cancel-in-progress: false
+
+jobs:
+  update-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch current live apps.json from livecontainer branch
+        # The livecontainer branch is the source of truth for the published
+        # source. Pull the live copy into the working tree so the update
+        # script preserves previous version history instead of always
+        # starting from the empty template in this branch.
+        run: |
+          set -e
+          mkdir -p .github/workflows/supporting/livecontainer
+          if git ls-remote --exit-code --heads origin livecontainer >/dev/null 2>&1; then
+            echo "Fetching live apps.json from livecontainer branch"
+            git fetch origin livecontainer --depth=1
+            git show origin/livecontainer:apps.json > .github/workflows/supporting/livecontainer/apps.json
+          else
+            echo "livecontainer branch does not yet exist; using template apps.json"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Update LiveContainer source
+        id: update_source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name || '' }}
+        run: |
+          python .github/workflows/supporting/update_livecontainer_json.py
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4.7.2
+        with:
+          branch: livecontainer
+          folder: .github/workflows/supporting/livecontainer
+          git-config-name: GitHub Actions
+          git-config-email: github-actions[bot]@users.noreply.github.com
+          commit-message: Update LiveContainer Source
+          single-commit: true

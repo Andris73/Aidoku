@@ -34,6 +34,7 @@ extension Notification.Name {
     static let updateMangaCategories = Self("updateMangaCategories")
     static let updateLibraryLock = Self("updateLibraryLock")
     static let pinTitles = Self("Library.pinTitles")
+    static let crossSourceCheckCompleted = Self("crossSourceCheckCompleted")
 
     // history
     static let updateHistory = Self("updateHistory")
