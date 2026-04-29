@@ -433,6 +433,15 @@ class LibraryViewController: OldMangaCollectionViewController {
             }
         }
 
+        // refresh cells when cross-source check results arrive
+        addObserver(forName: .crossSourceCheckCompleted) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.updateDataSource()
+                self.reloadItems()
+            }
+        }
+
         // lock library when moving to background
         addObserver(forName: UIApplication.willResignActiveNotification) { [weak self] _ in
             guard let self else { return }
@@ -472,6 +481,7 @@ class LibraryViewController: OldMangaCollectionViewController {
 
         cell.badgeNumber = viewModel.badgeType.contains(.unread) ? info.unread : 0
         cell.badgeNumber2 = viewModel.badgeType.contains(.downloaded) ? info.downloads : 0
+        cell.showsNewerSource = info.hasNewerSource
 
         cell.setEditing(self.isEditing, animated: false)
     }
@@ -481,6 +491,7 @@ class LibraryViewController: OldMangaCollectionViewController {
 
         cell.badgeNumber = viewModel.badgeType.contains(.unread) ? info.unread : 0
         cell.badgeNumber2 = viewModel.badgeType.contains(.downloaded) ? info.downloads : 0
+        cell.showsNewerSource = info.hasNewerSource
 
         cell.setEditing(isEditing, animated: false)
     }
