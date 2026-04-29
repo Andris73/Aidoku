@@ -142,6 +142,36 @@ extension SettingsView {
 extension SettingsView {
     func onSettingChange(_ key: String) {
         switch key {
+            case "Library.runCrossSourceCheck":
+                guard UserDefaults.standard.bool(forKey: "Library.crossSourceCheck") else { return }
+                Task {
+                    let tabController = UIApplication.shared.firstKeyWindow?.rootViewController as? TabBarController
+                    tabController?.showCrossSourceCheckView()
+
+                    await CrossSourceChecker.shared.clearCache()
+                    let libraryManga = await CoreDataManager.shared.container.performBackgroundTask { context in
+                        CoreDataManager.shared.getLibraryManga(context: context).compactMap { libraryObject -> MangaInfo? in
+                            guard let mangaObject = libraryObject.manga else { return nil }
+                            return MangaInfo(
+                                mangaId: mangaObject.id,
+                                sourceId: mangaObject.sourceId,
+                                title: mangaObject.title
+                            )
+                        }
+                    }
+                    let total = libraryManga.count
+                    var completed = 0
+                    let stream = await CrossSourceChecker.shared.checkLibrary(manga: libraryManga)
+                    for await _ in stream {
+                        completed += 1
+                        tabController?.setCrossSourceCheckProgress(Float(completed) / Float(total))
+                    }
+                    // Reset the schedule timestamp so the next automatic check
+                    // doesn't fire immediately after a manual run.
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "Library.crossSourceLastChecked")
+                    NotificationCenter.default.post(name: .crossSourceCheckCompleted, object: nil)
+                    tabController?.hideAccessoryView()
+                }
             case "General.appearance", "General.useSystemAppearance":
                 if !UserDefaults.standard.bool(forKey: "General.useSystemAppearance") {
                     if UserDefaults.standard.integer(forKey: "General.appearance") == 0 {
@@ -331,6 +361,16 @@ extension SettingsView {
             let newSetting = {
                 var setting = setting
                 setting.value = .multiselect(.init(values: categoriesOnly))
+                return setting
+            }()
+            SettingView(setting: newSetting)
+        } else if setting.key == "Library.crossSourceExcludedSources" {
+            let sources = SourceManager.shared.sources
+            let sourceIds = sources.map(\.key)
+            let sourceNames = sources.map(\.name)
+            let newSetting = {
+                var setting = setting
+                setting.value = .multiselect(.init(values: sourceIds, titles: sourceNames))
                 return setting
             }()
             SettingView(setting: newSetting)

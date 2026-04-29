@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct MangaInfo: Hashable, Sendable {
+struct MangaInfo: Sendable {
     var identifier: MangaIdentifier { .init(sourceKey: sourceId, mangaKey: mangaId) }
 
     let mangaId: String
@@ -21,6 +21,7 @@ struct MangaInfo: Hashable, Sendable {
 
     var unread: Int = 0
     var downloads: Int = 0
+    var hasNewerSource: Bool = false
 
     func toManga() -> Manga {
         Manga(
@@ -31,5 +32,20 @@ struct MangaInfo: Hashable, Sendable {
             coverUrl: coverUrl,
             url: url
         )
+    }
+}
+
+// MARK: - Hashable (identity = sourceId + mangaId only)
+// Dynamic display fields (unread, downloads, hasNewerSource) are excluded
+// so that NSDiffableDataSource treats changes to those fields as content
+// updates to the *same* item rather than a delete + insert of a new item.
+extension MangaInfo: Hashable {
+    static func == (lhs: MangaInfo, rhs: MangaInfo) -> Bool {
+        lhs.sourceId == rhs.sourceId && lhs.mangaId == rhs.mangaId
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(sourceId)
+        hasher.combine(mangaId)
     }
 }

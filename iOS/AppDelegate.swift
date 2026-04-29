@@ -139,6 +139,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 "Library.backgroundRefresh": true,
                 "Library.updateOnlyOnWifi": true,
                 "Library.refreshMetadata": false,
+                "Library.crossSourceCheck": true,
+                "Library.crossSourceCheckInterval": "weekly",
+                "Library.crossSourceLastChecked": 0.0,
 
                 "Browse.languages": ["multi"] + Locale.preferredLanguages.map { Locale(identifier: $0).languageCode },
                 "Browse.contentRatings": ["safe", "containsNsfw"],

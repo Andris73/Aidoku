@@ -42,6 +42,10 @@ class ReaderWebtoonViewController: ZoomableCollectionViewController {
     // Stores the last calculated page number
     private var previousPage = 0
 
+    // Tracks the current chapter-loading task so stale tasks can be cancelled
+    // before they call scrollToItem and snap the user back (ping-back bug).
+    private var setChapterTask: Task<Void, Never>?
+
     init(source: AidokuRunner.Source?, manga: AidokuRunner.Manga) {
         self.viewModel = ReaderWebtoonViewModel(source: source, manga: manga)
         super.init(layout: VerticalContentOffsetPreservingLayout())
@@ -588,11 +592,22 @@ extension ReaderWebtoonViewController: ReaderReaderDelegate {
     }
 
     func setChapter(_ chapter: AidokuRunner.Chapter, startPage: Int) {
+        // Cancel any in-flight load from a previous setChapter call.
+        // Without this, two overlapping Tasks could both reach scrollToItem
+        // and the stale one would snap the user back to its startPage
+        // (the "ping-back" bug).
+        setChapterTask?.cancel()
+
         self.chapter = chapter
         chapters = [chapter]
 
-        Task {
+        setChapterTask = Task {
             await viewModel.loadPages(chapter: chapter)
+
+            // If a newer setChapter call cancelled us, stop here – do NOT
+            // touch the collection view or scroll position.
+            guard !Task.isCancelled else { return }
+
             delegate?.setPages(viewModel.pages)
             if viewModel.pages.isEmpty {
                 pages = []
@@ -624,6 +639,12 @@ extension ReaderWebtoonViewController: ReaderReaderDelegate {
             }
 
             await collectionNode.reloadData()
+
+            // Final cancellation check: if we were cancelled while reloading
+            // (e.g. a notification or updateUIViewController triggered another
+            // setChapter), skip the scrollToItem so we don't ping-back.
+            guard !Task.isCancelled else { return }
+
             zoomView.adjustContentSize()
 
             // scroll to first page

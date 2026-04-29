@@ -40,6 +40,11 @@ class MangaGridCell: UICollectionViewCell {
         set { badgeView.badgeNumber2 = newValue }
     }
 
+    var showsNewerSource: Bool {
+        get { newerSourceBadge.isIndicatorVisible }
+        set { newerSourceBadge.isIndicatorVisible = newValue }
+    }
+
     let imageView = GIFImageView()
     private let titleLabel = UILabel()
     private let overlayView = UIView()
@@ -48,6 +53,7 @@ class MangaGridCell: UICollectionViewCell {
     private lazy var badgeView = DoubleBadgeView()
 
     private let bookmarkView = UIImageView()
+    private lazy var newerSourceBadge = NewerSourceBadgeView()
     private let highlightView = UIView()
 
     private var url: String?
@@ -113,6 +119,8 @@ class MangaGridCell: UICollectionViewCell {
         bookmarkView.contentMode = .scaleAspectFit
         contentView.addSubview(bookmarkView)
 
+        contentView.addSubview(newerSourceBadge)
+
         highlightView.alpha = 0
         highlightView.backgroundColor = UIColor(white: 0, alpha: 0.5)
         highlightView.layer.cornerRadius = layer.cornerRadius
@@ -130,6 +138,7 @@ class MangaGridCell: UICollectionViewCell {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         badgeView.translatesAutoresizingMaskIntoConstraints = false
         bookmarkView.translatesAutoresizingMaskIntoConstraints = false
+        newerSourceBadge.translatesAutoresizingMaskIntoConstraints = false
         highlightView.translatesAutoresizingMaskIntoConstraints = false
         selectionView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -156,6 +165,9 @@ class MangaGridCell: UICollectionViewCell {
             bookmarkView.topAnchor.constraint(equalTo: contentView.topAnchor),
             bookmarkView.widthAnchor.constraint(equalToConstant: 17),
             bookmarkView.heightAnchor.constraint(equalToConstant: 27),
+
+            newerSourceBadge.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5),
+            newerSourceBadge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -5),
 
             highlightView.topAnchor.constraint(equalTo: contentView.topAnchor),
             highlightView.leftAnchor.constraint(equalTo: contentView.leftAnchor),
@@ -184,6 +196,7 @@ class MangaGridCell: UICollectionViewCell {
         imageView.image = UIImage(named: "MangaPlaceholder")
         imageTask?.cancel()
         imageTask = nil
+        showsNewerSource = false
     }
 }
 

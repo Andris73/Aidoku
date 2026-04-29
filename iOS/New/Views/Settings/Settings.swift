@@ -251,7 +251,47 @@ extension Settings {
                 )
             ]))
         ),
-        libraryUpdateGroup
+        libraryUpdateGroup,
+        .init(
+            title: NSLocalizedString("CROSS_SOURCE_CHECKING"),
+            value: .group(.init(
+                footer: NSLocalizedString("CROSS_SOURCE_CHECKING_FOOTER"),
+                items: [
+                    .init(
+                        key: "Library.crossSourceCheck",
+                        title: NSLocalizedString("CROSS_SOURCE_CHECKING"),
+                        value: .toggle(.init())
+                    ),
+                    .init(
+                        key: "Library.crossSourceCheckInterval",
+                        title: NSLocalizedString("CHECK_FREQUENCY"),
+                        requires: "Library.crossSourceCheck",
+                        value: .select(.init(
+                            values: ["never", "daily", "weekly", "2weeks", "monthly"],
+                            titles: [
+                                NSLocalizedString("NEVER"),
+                                NSLocalizedString("DAILY"),
+                                NSLocalizedString("WEEKLY"),
+                                NSLocalizedString("EVERY_2_WEEKS"),
+                                NSLocalizedString("MONTHLY")
+                            ]
+                        ))
+                    ),
+                    .init(
+                        key: "Library.crossSourceExcludedSources",
+                        title: NSLocalizedString("EXCLUDED_SOURCES"),
+                        requires: "Library.crossSourceCheck",
+                        value: .custom
+                    ),
+                    .init(
+                        key: "Library.runCrossSourceCheck",
+                        title: NSLocalizedString("RUN_CROSS_SOURCE_CHECK"),
+                        requires: "Library.crossSourceCheck",
+                        value: .button(.init())
+                    )
+                ]
+            ))
+        )
     ]
 
     private static let libraryUpdateGroup: Setting = {
