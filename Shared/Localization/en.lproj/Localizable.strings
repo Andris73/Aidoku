@@ -482,6 +482,36 @@
 "THIS_MONTH" = "This Month";
 "THIS_YEAR" = "This Year";
 
+// Insights - Highlights
+"HIGHLIGHTS" = "Highlights";
+"AVG_SESSION" = "Avg Session";
+"VS_LAST_MONTH" = "vs last month";
+
+// Insights - Reading Habits
+"READING_HABITS" = "Reading Habits";
+"TIME_OF_DAY" = "Time of Day";
+"DAY_OF_WEEK" = "Day of Week";
+"TIME_MORNING" = "Morning";
+"TIME_AFTERNOON" = "Afternoon";
+"TIME_EVENING" = "Evening";
+"TIME_NIGHT" = "Night";
+"MOST_ACTIVE_%@" = "Most active: %@";
+
+// Insights - Top Series
+"TOP_SERIES" = "Top Series";
+"X_SESSIONS_%d" = "%d sessions";
+"X_PAGES_%d" = "%d pages";
+"X_CHAPTERS_%d" = "%d chapters";
+
+// Insights - Year in Review
+"YEAR_IN_REVIEW_%d" = "%d Year in Review";
+"YEAR_IN_REVIEW_SUBTITLE" = "Your reading journey this year";
+"SESSION_PLURAL" = "Sessions";
+"SESSION_SINGULAR" = "Session";
+"TOP_MONTH" = "Top Month";
+"TOP_MANGA" = "Top Manga";
+"TOP_SOURCE" = "Top Source";
+
 // Source Lists
 "SOURCE_LISTS" = "Source Lists";
 "SOURCE_LIST_ADDED" = "Source List Added";
