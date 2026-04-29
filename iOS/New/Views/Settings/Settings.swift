@@ -182,6 +182,11 @@ extension Settings {
                 value: .toggle(.init())
             ),
             .init(
+                key: "Library.resumeLastOpenedChapter",
+                title: NSLocalizedString("RESUME_LAST_OPENED_CHAPTER"),
+                value: .toggle(.init())
+            ),
+            .init(
                 key: "Library.unreadChapterBadges",
                 title: NSLocalizedString("UNREAD_CHAPTER_BADGES"),
                 value: .toggle(.init())
@@ -517,9 +522,9 @@ extension Settings {
                     ))
                 ),
                 .init(
-                    key: "Reader.pagedIsolateFirstPage",
-                    title: NSLocalizedString("ISOLATE_FIRST_PAGE"),
-                    notification: .init("Reader.pagedIsolateFirstPage"),
+                    key: "Reader.pagedPageOffset",
+                    title: NSLocalizedString("PAGE_OFFSET"),
+                    notification: .init("Reader.pagedPageOffset"),
                     value: .toggle(.init())
                 ),
                 .init(
